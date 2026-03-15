@@ -1,0 +1,16 @@
+# 微信读书自动刷时长配置文件
+# 首次使用请运行 python main.py，会自动引导完成配置
+
+cookie:
+  wr_skey: ""   # 从浏览器开发者工具 Cookie 中复制
+  wr_vid: ""    # 用户 ID
+
+schedule:
+  start_hour: 8        # 每天开始运行的小时（24h制）
+  end_hour: 23         # 每天停止运行的小时
+  interval_min: 25     # 每次上报间隔（分钟）
+  interval_jitter: 10  # 随机抖动范围（分钟），实际间隔 = interval_min ± jitter
+
+reading:
+  duration_per_report: 60   # 每次上报的阅读秒数
+  max_daily_minutes: 60     # 每日最大刷取分钟数（防风控，建议不超过 60）
