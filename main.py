@@ -324,6 +324,13 @@ class WeReadClient:
         payload = {"rq": "%2Fweb%2Fbook%2Fread", "ql": True}
         try:
             resp = self.sess.post(RENEW_URL, json=payload, timeout=15)
+            data = resp.json() if resp.text.strip().startswith("{") else {}
+            # 服务端返回错误（如 -2013 鉴权失败）时会同时通过 Set-Cookie 清空认证 cookie
+            # 必须立即 _reset_cookies() 恢复，否则后续阅读请求全部失败
+            if data.get("errCode", 0) != 0:
+                self._reset_cookies()
+                log.warning("Cookie 刷新失败（errCode=%s %s）", data.get("errCode"), data.get("errMsg", ""))
+                return False
             new_key = None
             # 逐段解析 Set-Cookie，找到 wr_skey
             for segment in resp.headers.get("Set-Cookie", "").split(","):
@@ -340,6 +347,7 @@ class WeReadClient:
                 log.info("Cookie 已刷新: wr_skey=%s", new_key)
                 return True
         except Exception as e:
+            self._reset_cookies()              # 异常时同样恢复，防止半途清空
             log.warning("Cookie 刷新异常: %s", e)
         log.warning("Cookie 刷新失败（可能已完全过期）")
         return False
