@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """微信读书自动阅读 - Web 界面服务端（多用户 + SQLite 持久化）"""
-import sys, os, threading, time, random, logging, sqlite3, base64
+import sys, os, threading, time, random, logging, sqlite3, base64, io
+import requests as _http
 
 from flask import Flask, request, jsonify, render_template
 
@@ -477,6 +478,126 @@ def api_config_get():
         "target_minutes": int(db_get_config("target_minutes", "60")),
         "interval":       db_get_config("interval", "28-35"),
     })
+
+
+# ── 扫码登录 ────────────────────────────────────────────────────────────────────
+_qr_lock     = threading.Lock()
+_qr_sessions: dict = {}   # uid -> {"sess": Session, "started": float}
+QR_EXPIRE    = 300         # 二维码有效期 5 分钟
+
+_QR_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) "
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+        "Version/18.5 Mobile/15E148 Safari/604.1"
+    ),
+    "Referer":         "https://weread.qq.com/",
+    "accept":          "*/*",
+    "accept-language": "zh-CN,zh;q=0.9",
+}
+
+
+def _qr_cleanup():
+    cutoff = time.time() - QR_EXPIRE
+    with _qr_lock:
+        stale = [u for u, d in _qr_sessions.items() if d["started"] < cutoff]
+        for u in stale:
+            del _qr_sessions[u]
+
+
+def _make_qr_png_b64(content: str) -> str:
+    """用 qrcode 库生成二维码，返回 base64 PNG data URL"""
+    import qrcode
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=7, border=2,
+    )
+    qr.add_data(content)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="#000000", back_color="#ffffff")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+@app.route("/api/qrlogin/start")
+def qrlogin_start():
+    """建立访客 session，获取 loginUid，生成二维码图片"""
+    _qr_cleanup()
+    try:
+        sess = _http.Session()
+        sess.headers.update(_QR_HEADERS)
+        # 先访问首页，让服务器种下基础 cookie（wr_localvid 等）
+        sess.get("https://weread.qq.com/", timeout=12)
+
+        r = sess.get("https://weread.qq.com/api/auth/getLoginUid", timeout=12)
+        r.raise_for_status()
+        data = r.json()
+
+        uid = (data.get("uid")
+               or data.get("loginUid")
+               or (data.get("data") or {}).get("uid"))
+        if not uid:
+            return jsonify({"error": f"未获取到 uid，服务器返回：{data}"}), 500
+
+        with _qr_lock:
+            _qr_sessions[uid] = {"sess": sess, "started": time.time()}
+
+        # 二维码内容：uid 本身（WeRead App 扫描后识别为登录请求）
+        qr_img = _make_qr_png_b64(uid)
+        return jsonify({"uid": uid, "qr_img": qr_img})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/qrlogin/poll")
+def qrlogin_poll():
+    """轮询登录状态；成功时返回完整 cookie 字符串"""
+    uid = request.args.get("uid", "").strip()
+    if not uid:
+        return jsonify({"status": "error", "error": "uid 不能为空"}), 400
+
+    with _qr_lock:
+        qr = _qr_sessions.get(uid)
+    if not qr:
+        return jsonify({"status": "expired"})
+    if time.time() - qr["started"] > QR_EXPIRE:
+        with _qr_lock:
+            _qr_sessions.pop(uid, None)
+        return jsonify({"status": "expired"})
+
+    sess = qr["sess"]
+    try:
+        r = sess.get(
+            "https://weread.qq.com/api/auth/getLoginInfo",
+            params={"uid": uid, "otp": ""},
+            timeout=12,
+        )
+        data = r.json()
+        login_status = data.get("loginStatus", 0)
+
+        # 判断是否已完成登录：wr_skey 出现即表示登录成功
+        wr_skey = sess.cookies.get("wr_skey") or r.cookies.get("wr_skey")
+        confirmed = (login_status == 2) or bool(wr_skey)
+
+        if confirmed:
+            # 合并 session cookie 和本次响应 cookie
+            merged = {**dict(sess.cookies), **dict(r.cookies)}
+            cookie_str = "; ".join(f"{k}={v}" for k, v in merged.items())
+            with _qr_lock:
+                _qr_sessions.pop(uid, None)
+            return jsonify({"status": "success", "cookie": cookie_str})
+
+        # loginStatus 1 = 已扫码未确认（App 端显示「确认登录」按钮）
+        if login_status == 1:
+            return jsonify({"status": "scanned"})
+
+        return jsonify({"status": "waiting"})
+
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)})
 
 
 if __name__ == "__main__":

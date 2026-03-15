@@ -337,6 +337,50 @@ body{
   .card{padding:18px 20px}
 }
 
+/* ── mode toggle ── */
+.mode-toggle{
+  background:none;border:1px solid var(--gb);border-radius:7px;
+  padding:3px 9px;cursor:pointer;
+  font-family:'Outfit',sans-serif;font-size:11px;font-weight:500;color:var(--t3);
+  display:flex;align-items:center;gap:5px;transition:all var(--tr);
+  -webkit-tap-highlight-color:transparent;flex-shrink:0;
+}
+.mode-toggle:hover{background:var(--glass);color:var(--t2);border-color:var(--gb2)}
+.mode-toggle.qr-active{background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.3);color:#93c5fd}
+
+/* ── QR panel ── */
+.qr-wrap{display:flex;flex-direction:column;align-items:center;padding:8px 0 4px}
+.qr-box{
+  position:relative;width:180px;height:180px;
+  background:#fff;border-radius:12px;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 0 1px rgba(255,255,255,.15),0 8px 32px rgba(0,0,0,.35);
+}
+.qr-img{width:180px;height:180px;display:block;border-radius:12px}
+.qr-loading,.qr-overlay,.qr-expired{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:10px;border-radius:12px;
+  font-size:12px;font-weight:500;
+}
+.qr-loading{background:#fff;color:#475569}
+.qr-overlay{background:rgba(0,0,0,.6);backdrop-filter:blur(4px);color:#6ee7b7;text-align:center;padding:16px}
+.qr-expired{background:rgba(0,0,0,.7);backdrop-filter:blur(4px);color:#94a3b8;text-align:center;padding:16px}
+.qr-spin{
+  width:24px;height:24px;border-radius:50%;
+  border:2px solid rgba(59,130,246,.2);border-top-color:#3b82f6;
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.qr-refresh-btn{
+  margin-top:4px;padding:5px 14px;border-radius:7px;border:none;
+  background:rgba(255,255,255,.15);color:#f1f5f9;
+  font-family:'Outfit',sans-serif;font-size:11px;font-weight:500;
+  cursor:pointer;transition:all var(--tr);
+}
+.qr-refresh-btn:hover{background:rgba(255,255,255,.25)}
+.qr-tip{margin-top:12px;font-size:12px;color:var(--t3);text-align:center}
+.qr-countdown{font-size:11px;color:var(--t3);margin-top:4px;min-height:16px;font-family:'Fira Code',monospace}
+
 /* ── load anim ── */
 .card{opacity:0;animation:up .35s ease forwards}
 .card:nth-child(1){animation-delay:.05s}
@@ -391,21 +435,58 @@ body{
     <div class="panel active" id="panel-setup">
       <div class="inner">
         <div class="card">
-          <div class="ctitle"><div class="cnum">01</div>粘贴 Cookie</div>
-          <div class="fmt-row">
-            <span class="ftag on" id="tag-plain">纯字符串</span>
-            <span class="ftag"    id="tag-curl">curl 命令</span>
-            <span class="ftag"    id="tag-hdr">请求头格式</span>
+          <div class="ctitle">
+            <div class="cnum">01</div>
+            Cookie 登录
+            <div class="tg"></div>
+            <button class="mode-toggle" id="mode-toggle" onclick="toggleMode()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+              扫码登录
+            </button>
           </div>
-          <textarea id="cookie-ta" class="cookie-area"
-            placeholder="wr_skey=AbCd1234; wr_vid=38442...&#10;&#10;或粘贴完整 curl 命令"
-            autocomplete="off" autocorrect="off" spellcheck="false"
-            oninput="detectFmt(this.value)"></textarea>
-          <label class="remember">
-            <input type="checkbox" id="remember-cb">
-            <span>记住 Cookie（保存到本地数据库）</span>
-          </label>
-          <div class="err" id="cookie-err"></div>
+
+          <!-- 手动模式 -->
+          <div id="manual-mode">
+            <div class="fmt-row">
+              <span class="ftag on" id="tag-plain">纯字符串</span>
+              <span class="ftag"    id="tag-curl">curl 命令</span>
+              <span class="ftag"    id="tag-hdr">请求头格式</span>
+            </div>
+            <textarea id="cookie-ta" class="cookie-area"
+              placeholder="wr_skey=AbCd1234; wr_vid=38442...&#10;&#10;或粘贴完整 curl 命令"
+              autocomplete="off" autocorrect="off" spellcheck="false"
+              oninput="detectFmt(this.value)"></textarea>
+            <label class="remember">
+              <input type="checkbox" id="remember-cb">
+              <span>记住 Cookie（保存到本地数据库）</span>
+            </label>
+            <div class="err" id="cookie-err"></div>
+          </div>
+
+          <!-- 扫码模式 -->
+          <div id="qr-mode" style="display:none">
+            <div class="qr-wrap">
+              <div class="qr-box" id="qr-box">
+                <div class="qr-loading" id="qr-loading">
+                  <div class="qr-spin"></div>
+                  <span>正在生成二维码…</span>
+                </div>
+                <img id="qr-img" class="qr-img" style="display:none" alt="登录二维码">
+                <div class="qr-overlay" id="qr-overlay" style="display:none">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  <span>已扫码，请在手机上确认</span>
+                </div>
+                <div class="qr-expired" id="qr-expired" style="display:none">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  <span>二维码已过期</span>
+                  <button class="qr-refresh-btn" onclick="startQR()">重新获取</button>
+                </div>
+              </div>
+              <div class="qr-tip" id="qr-tip">用微信读书 App 扫描登录</div>
+              <div class="qr-countdown" id="qr-countdown"></div>
+            </div>
+            <div class="err" id="qr-err"></div>
+          </div>
         </div>
 
         <div class="card">
@@ -734,6 +815,118 @@ async function poll(){
       $('status-msg').className='smsg er';
     }
   }
+}
+
+// ── QR 登录 ────────────────────────────────────────────────────────────────────
+let qrUid=null, qrTimer=null, qrExpireTimer=null, qrSecondsLeft=0;
+let qrMode=false;
+
+function toggleMode(){
+  qrMode=!qrMode;
+  $('manual-mode').style.display = qrMode ? 'none' : '';
+  $('qr-mode').style.display     = qrMode ? ''     : 'none';
+  $('mode-toggle').classList.toggle('qr-active', qrMode);
+  $('mode-toggle').innerHTML = qrMode
+    ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> 手动输入'
+    : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg> 扫码登录';
+  if(qrMode) startQR(); else cancelQR();
+}
+
+async function startQR(){
+  // 重置状态
+  $('qr-loading').style.display='';
+  $('qr-img').style.display='none';
+  $('qr-overlay').style.display='none';
+  $('qr-expired').style.display='none';
+  $('qr-tip').textContent='用微信读书 App 扫描登录';
+  $('qr-err').classList.remove('on');
+  $('qr-countdown').textContent='';
+  cancelQR();
+
+  try{
+    const d=await get('/api/qrlogin/start');
+    if(d.error){
+      $('qr-loading').style.display='none';
+      $('qr-err').textContent=d.error;$('qr-err').classList.add('on');
+      return;
+    }
+    qrUid=d.uid;
+    // 显示二维码图片
+    const img=$('qr-img');
+    img.src=d.qr_img;
+    img.onload=()=>{
+      $('qr-loading').style.display='none';
+      img.style.display='block';
+    };
+    // 倒计时 300s
+    qrSecondsLeft=300;
+    qrExpireTimer=setInterval(()=>{
+      qrSecondsLeft--;
+      $('qr-countdown').textContent=`有效期剩余 ${qrSecondsLeft}s`;
+      if(qrSecondsLeft<=0){
+        clearInterval(qrExpireTimer);
+        showQRExpired();
+      }
+    },1000);
+    // 开始轮询
+    qrTimer=setInterval(pollQR,2000);
+  }catch(e){
+    $('qr-loading').style.display='none';
+    $('qr-err').textContent='网络错误：'+e.message;$('qr-err').classList.add('on');
+  }
+}
+
+function cancelQR(){
+  if(qrTimer){clearInterval(qrTimer);qrTimer=null;}
+  if(qrExpireTimer){clearInterval(qrExpireTimer);qrExpireTimer=null;}
+  qrUid=null;
+}
+
+async function pollQR(){
+  if(!qrUid) return;
+  try{
+    const d=await get('/api/qrlogin/poll?uid='+qrUid);
+    if(d.status==='waiting'){
+      // 继续等待
+    }else if(d.status==='scanned'){
+      $('qr-overlay').style.display='';
+      $('qr-tip').textContent='请在手机上点击「确认登录」';
+    }else if(d.status==='success'){
+      cancelQR();
+      // 填入 cookie，切回手动模式
+      $('cookie-ta').value=d.cookie;
+      detectFmt(d.cookie);
+      // 自动勾选"记住"并保存
+      $('remember-cb').checked=true;
+      localStorage.setItem(LS_COOKIE,d.cookie);
+      localStorage.setItem(LS_REMEMBER,'true');
+      // 切回手动模式展示结果
+      qrMode=true; toggleMode();  // 触发反转回手动
+      $('qr-tip').textContent='';
+      // 成功提示
+      const errEl=$('cookie-err');
+      errEl.style.background='rgba(16,185,129,.1)';
+      errEl.style.borderColor='rgba(16,185,129,.2)';
+      errEl.style.color='#6ee7b7';
+      errEl.textContent='✅ 扫码登录成功，Cookie 已自动填入';
+      errEl.classList.add('on');
+      setTimeout(()=>{errEl.classList.remove('on');errEl.style='';},4000);
+    }else if(d.status==='expired'){
+      cancelQR();
+      showQRExpired();
+    }else if(d.status==='error'){
+      $('qr-err').textContent=d.error||'轮询出错';$('qr-err').classList.add('on');
+    }
+  }catch(e){}
+}
+
+function showQRExpired(){
+  $('qr-img').style.display='none';
+  $('qr-overlay').style.display='none';
+  $('qr-loading').style.display='none';
+  $('qr-expired').style.display='';
+  $('qr-countdown').textContent='';
+  $('qr-tip').textContent='二维码已失效，请重新获取';
 }
 
 // ── modal ──────────────────────────────────────────────────────────────────────
