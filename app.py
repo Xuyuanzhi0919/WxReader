@@ -577,23 +577,39 @@ def qrlogin_poll():
             timeout=12,
         )
         data = r.json()
-        login_status = data.get("loginStatus", 0)
 
-        # 判断是否已完成登录：wr_skey 出现即表示登录成功
-        wr_skey = sess.cookies.get("wr_skey") or r.cookies.get("wr_skey")
-        confirmed = (login_status == 2) or bool(wr_skey)
-
-        if confirmed:
-            # 合并 session cookie 和本次响应 cookie
+        # 官方 JS 逻辑：succeed=true 时登录成功，accessToken→wr_skey，webLoginVid→wr_vid
+        if data.get("succeed"):
+            access_token = data.get("accessToken", "")
+            web_login_vid = str(data.get("webLoginVid", ""))
+            # 合并 HTTP session cookies（含 wr_ql/wr_rt/wr_gid 等）
             merged = {**dict(sess.cookies), **dict(r.cookies)}
+            if access_token:
+                merged["wr_skey"] = access_token
+            if web_login_vid:
+                merged["wr_vid"] = web_login_vid
             cookie_str = "; ".join(f"{k}={v}" for k, v in merged.items())
             with _qr_lock:
                 _qr_sessions.pop(uid, None)
             return jsonify({"status": "success", "cookie": cookie_str})
 
-        # loginStatus 1 = 已扫码未确认（App 端显示「确认登录」按钮）
-        if login_status == 1:
-            return jsonify({"status": "scanned"})
+        # logicCode 处理
+        logic_code = data.get("logicCode", "")
+        if logic_code == "LOGIN_TIMEOUT":
+            with _qr_lock:
+                _qr_sessions.pop(uid, None)
+            return jsonify({"status": "expired"})
+        if logic_code in ("NEED_OTP", "OTP_EXPIRED", "OTP_NOT_MATCH"):
+            return jsonify({"status": "error", "error": f"需要验证码或已过期（{logic_code}）"})
+
+        # 兜底：检查 HTTP cookies 中是否已有 wr_skey（旧版接口兼容）
+        wr_skey = sess.cookies.get("wr_skey") or r.cookies.get("wr_skey")
+        if wr_skey:
+            merged = {**dict(sess.cookies), **dict(r.cookies)}
+            cookie_str = "; ".join(f"{k}={v}" for k, v in merged.items())
+            with _qr_lock:
+                _qr_sessions.pop(uid, None)
+            return jsonify({"status": "success", "cookie": cookie_str})
 
         return jsonify({"status": "waiting"})
 
