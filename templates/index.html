@@ -1,342 +1,634 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>微信读书 · 自动阅读</title>
-  <style>
-    :root {
-      --bg:           #F7F6F3;
-      --white:        #FFFFFF;
-      --primary:      #7C9070;
-      --primary-tint: rgba(124,144,112,0.08);
-      --primary-dark: #4A5D43;
-      --danger:       #D4845E;
-      --danger-tint:  rgba(212,132,94,0.08);
-      --text-1:       #2D2D2D;
-      --text-2:       #6B6B6B;
-      --text-3:       #8E8E93;
-      --border:       #F0EFEC;
-      --shadow:       0 4px 30px rgba(0,0,0,0.04);
-    }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WxReader · 阅读控制台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ── tokens ── */
+:root {
+  --bg:         #06090f;
+  --bg2:        #0a0f1c;
+  --glass:      rgba(255,255,255,0.04);
+  --glass-hi:   rgba(255,255,255,0.07);
+  --glass-b:    rgba(255,255,255,0.09);
+  --glass-b2:   rgba(255,255,255,0.15);
+  --cyan:       #22d3ee;
+  --cyan-dim:   rgba(34,211,238,0.12);
+  --cyan-glow:  rgba(34,211,238,0.35);
+  --violet:     #a78bfa;
+  --violet-dim: rgba(167,139,250,0.12);
+  --amber:      #fbbf24;
+  --red:        #f87171;
+  --green:      #34d399;
+  --t1:         #e2e8f0;
+  --t2:         #94a3b8;
+  --t3:         #475569;
+  --border:     rgba(255,255,255,0.08);
+  --r-sm:       12px;
+  --r-md:       18px;
+  --r-lg:       24px;
+}
 
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
-    body {
-      background: var(--bg);
-      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC',
-                   'Hiragino Sans GB', 'Segoe UI', sans-serif;
-      color: var(--text-1);
-      min-height: 100vh;
-    }
+html,body{height:100%}
+body{
+  background:var(--bg);
+  font-family:'Plus Jakarta Sans',sans-serif;
+  color:var(--t1);
+  min-height:100vh;
+  overflow-x:hidden;
+}
 
-    /* ── Nav ── */
-    .nav {
-      position: sticky; top: 0; z-index: 100;
-      background: var(--white);
-      border-bottom: 1px solid var(--border);
-      height: 64px;
-      display: flex; align-items: center;
-      padding: 0 48px; gap: 12px;
-    }
-    .logo-mark {
-      width: 32px; height: 32px;
-      background: var(--primary); border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 16px; flex-shrink: 0;
-    }
-    .logo-text { font-size: 18px; font-weight: 600; letter-spacing: -0.5px; }
-    .nav-spacer { flex: 1; }
-    .help-btn {
-      display: flex; align-items: center; gap: 6px;
-      padding: 6px 14px;
-      background: var(--bg); border-radius: 8px; border: none;
-      font-size: 13px; font-weight: 500; color: var(--primary);
-      cursor: pointer; font-family: inherit;
-    }
-    .help-btn:hover { background: var(--primary-tint); }
+/* ── aurora background ── */
+.aurora{
+  position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;
+}
+.orb{
+  position:absolute;border-radius:50%;filter:blur(100px);
+}
+.orb-1{
+  width:700px;height:700px;
+  background:radial-gradient(circle,rgba(34,211,238,0.18),transparent 70%);
+  top:-200px;left:-150px;
+  animation:drift1 22s ease-in-out infinite;
+}
+.orb-2{
+  width:600px;height:600px;
+  background:radial-gradient(circle,rgba(139,92,246,0.16),transparent 70%);
+  bottom:-150px;right:-100px;
+  animation:drift2 28s ease-in-out infinite;
+}
+.orb-3{
+  width:450px;height:450px;
+  background:radial-gradient(circle,rgba(16,185,129,0.10),transparent 70%);
+  top:40%;left:35%;
+  animation:drift3 18s ease-in-out infinite;
+}
+@keyframes drift1{0%,100%{transform:translate(0,0) scale(1)}40%{transform:translate(6%,-8%) scale(1.1)}70%{transform:translate(-4%,5%) scale(0.92)}}
+@keyframes drift2{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(-5%,6%) scale(1.08)}66%{transform:translate(4%,-4%) scale(0.96)}}
+@keyframes drift3{0%,100%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-48%,-52%) scale(1.15)}}
 
-    /* ── Layout ── */
-    .main {
-      max-width: 760px; margin: 0 auto;
-      padding: 40px 20px 64px;
-      display: flex; flex-direction: column; gap: 20px;
-    }
-    .hero-title { font-size: 30px; font-weight: 600; letter-spacing: -1px; }
-    .hero-sub   { font-size: 15px; color: var(--text-2); }
+/* subtle grain */
+body::after{
+  content:'';position:fixed;inset:0;z-index:1;pointer-events:none;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  opacity:.35;
+}
 
-    /* ── Card ── */
-    .card {
-      background: var(--white); border-radius: 16px;
-      padding: 28px; box-shadow: var(--shadow);
-      display: flex; flex-direction: column; gap: 16px;
-    }
-    .step-header { display: flex; align-items: center; gap: 12px; }
-    .step-badge {
-      width: 28px; height: 28px; flex-shrink: 0;
-      background: var(--primary); border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 13px; font-weight: 600; color: #fff;
-    }
-    .step-title { font-size: 16px; font-weight: 600; }
-    .step-desc  { font-size: 13px; color: var(--text-2); margin-top: 3px; }
+/* ── layout ── */
+.app{position:relative;z-index:2;display:flex;flex-direction:column;min-height:100vh;}
 
-    /* ── Tip ── */
-    .tip-row {
-      display: flex; align-items: flex-start; gap: 8px;
-      padding: 10px 14px;
-      background: var(--primary-tint); border-radius: 8px;
-      font-size: 12px; color: var(--primary-dark); line-height: 1.5;
-    }
+/* ── topbar ── */
+.topbar{
+  display:flex;align-items:center;gap:14px;
+  padding:0 32px;height:60px;
+  background:rgba(6,9,15,0.7);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border-bottom:1px solid var(--border);
+  position:sticky;top:0;z-index:50;
+}
+.brand{display:flex;align-items:center;gap:10px;}
+.brand-glyph{
+  width:32px;height:32px;border-radius:9px;
+  background:linear-gradient(135deg,var(--cyan),#0891b2);
+  display:flex;align-items:center;justify-content:center;
+  font-size:16px;
+  box-shadow:0 0 16px var(--cyan-glow);
+}
+.brand-name{
+  font-family:'Syne',sans-serif;font-weight:800;font-size:16px;
+  letter-spacing:0.5px;
+  background:linear-gradient(90deg,var(--t1),var(--t2));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.brand-dot{color:var(--cyan);-webkit-text-fill-color:var(--cyan);}
+.topbar-spacer{flex:1;}
+.top-status{
+  display:flex;align-items:center;gap:8px;
+  padding:5px 14px;border-radius:99px;
+  background:var(--glass);border:1px solid var(--border);
+  font-size:12px;font-weight:500;color:var(--t2);
+  transition:all .3s;
+}
+.top-status.running{background:var(--cyan-dim);border-color:rgba(34,211,238,0.25);color:var(--cyan);}
+.top-status.done   {background:rgba(52,211,153,0.12);border-color:rgba(52,211,153,0.25);color:var(--green);}
+.top-status.error  {background:rgba(248,113,113,0.12);border-color:rgba(248,113,113,0.25);color:var(--red);}
+.status-pulse{
+  width:7px;height:7px;border-radius:50%;background:var(--t3);
+  transition:background .3s;
+}
+.top-status.running .status-pulse{background:var(--cyan);animation:pulse 1.4s ease-in-out infinite;}
+.top-status.done    .status-pulse{background:var(--green);}
+.top-status.error   .status-pulse{background:var(--red);}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(0.85)}}
 
-    /* ── Textarea ── */
-    .cookie-area {
-      width: 100%; height: 130px;
-      padding: 14px 16px;
-      background: var(--bg); border: 1px solid var(--border);
-      border-radius: 10px;
-      font-size: 12.5px; font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
-      color: var(--text-1); resize: vertical; outline: none;
-      line-height: 1.65; transition: border-color .2s;
-    }
-    .cookie-area:focus   { border-color: var(--primary); }
-    .cookie-area::placeholder { color: var(--text-3); }
-    .cookie-area:disabled { opacity: .55; cursor: not-allowed; }
+.help-pill{
+  display:flex;align-items:center;gap:6px;padding:5px 14px;
+  border-radius:99px;background:var(--glass);border:1px solid var(--border);
+  font-size:12px;font-weight:500;color:var(--t2);cursor:pointer;
+  transition:all .2s;font-family:inherit;
+}
+.help-pill:hover{background:var(--glass-hi);color:var(--t1);border-color:var(--glass-b2);}
 
-    /* ── Settings ── */
-    .settings-row { display: flex; gap: 20px; }
-    .field { flex: 1; display: flex; flex-direction: column; gap: 8px; }
-    .field-label { font-size: 13px; font-weight: 600; }
-    .field-box {
-      display: flex; align-items: center; height: 44px; padding: 0 16px;
-      background: var(--bg); border: 1px solid var(--border);
-      border-radius: 10px; gap: 8px;
-    }
-    .field-box input {
-      flex: 1; background: none; border: none; outline: none;
-      font-size: 15px; font-weight: 500; color: var(--text-1);
-      font-family: inherit; min-width: 0;
-    }
-    .field-box input:disabled { cursor: not-allowed; }
-    .field-unit { font-size: 13px; color: var(--text-3); white-space: nowrap; }
+/* ── main split ── */
+.split{
+  display:grid;
+  grid-template-columns:400px 1fr;
+  flex:1;
+  gap:0;
+}
 
-    /* ── Run Button ── */
-    .run-btn {
-      width: 100%; height: 52px;
-      background: var(--primary); border: none; border-radius: 12px;
-      display: flex; align-items: center; justify-content: center; gap: 10px;
-      font-size: 16px; font-weight: 600; color: #fff;
-      cursor: pointer; font-family: inherit;
-      box-shadow: 0 2px 20px rgba(0,0,0,0.06);
-      transition: opacity .15s, transform .15s;
-    }
-    .run-btn:hover:not(:disabled)  { opacity: .9; transform: translateY(-1px); }
-    .run-btn:active:not(:disabled) { transform: translateY(0); }
-    .run-btn.stopping { background: var(--danger); }
-    .run-btn:disabled { opacity: .5; cursor: not-allowed; }
+/* ── left panel ── */
+.left{
+  padding:28px 24px;
+  border-right:1px solid var(--border);
+  overflow-y:auto;
+  display:flex;flex-direction:column;gap:20px;
+}
 
-    /* ── Error ── */
-    .err-msg {
-      display: none; padding: 10px 14px;
-      background: var(--danger-tint); border-radius: 8px;
-      font-size: 13px; color: var(--danger);
-    }
-    .err-msg.show { display: block; }
+/* ── glass card ── */
+.gcard{
+  background:var(--glass);
+  backdrop-filter:blur(20px) saturate(180%);
+  -webkit-backdrop-filter:blur(20px) saturate(180%);
+  border:1px solid var(--glass-b);
+  border-radius:var(--r-lg);
+  padding:22px;
+  transition:border-color .3s;
+}
+.gcard:hover{border-color:var(--glass-b2);}
 
-    /* ── Status ── */
-    .status-header { display: flex; align-items: center; gap: 10px; }
-    .status-dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: var(--text-3); flex-shrink: 0;
-      transition: background .3s;
-    }
-    .status-dot.running { background: var(--primary); animation: blink 1.4s ease-in-out infinite; }
-    .status-dot.done    { background: var(--primary); }
-    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+/* step header */
+.step-h{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+.step-n{
+  width:26px;height:26px;border-radius:8px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Syne',sans-serif;font-size:12px;font-weight:700;
+  background:var(--cyan-dim);border:1px solid rgba(34,211,238,0.2);
+  color:var(--cyan);
+}
+.step-label{font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--t1);}
+.step-sub{font-size:12px;color:var(--t3);margin-top:2px;}
 
-    .status-title { font-size: 15px; font-weight: 600; flex: 1; }
-    .status-badge {
-      padding: 4px 10px; border-radius: 6px;
-      font-size: 12px; font-weight: 500;
-      background: var(--danger-tint); color: var(--danger);
-      transition: all .3s;
-    }
-    .status-badge.running { background: var(--primary-tint); color: var(--primary-dark); }
-    .status-badge.done    { background: var(--primary-tint); color: var(--primary-dark); }
+/* format badges */
+.fmt-badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+.fmt-badge{
+  padding:3px 10px;border-radius:99px;
+  font-size:11px;font-weight:500;
+  background:var(--glass-hi);border:1px solid var(--glass-b);
+  color:var(--t2);
+}
+.fmt-badge.active{background:var(--cyan-dim);border-color:rgba(34,211,238,0.3);color:var(--cyan);}
 
-    /* ── Progress ── */
-    .prog-row   { display: flex; flex-direction: column; gap: 7px; }
-    .prog-label { display: flex; justify-content: space-between; font-size: 12px; }
-    .prog-label .left  { color: var(--text-2); font-weight: 500; }
-    .prog-label .right { color: var(--text-1); font-weight: 600; }
-    .prog-track {
-      width: 100%; height: 8px;
-      background: var(--border); border-radius: 4px; overflow: hidden;
-    }
-    .prog-fill {
-      height: 100%; background: var(--primary); border-radius: 4px;
-      transition: width .6s ease; min-width: 0;
-    }
+/* textarea */
+.cookie-area{
+  width:100%;height:120px;
+  padding:12px 14px;
+  background:rgba(0,0,0,0.3);
+  border:1px solid var(--border);border-radius:var(--r-sm);
+  font-size:11.5px;font-family:'JetBrains Mono',monospace;
+  color:var(--t1);resize:vertical;outline:none;line-height:1.7;
+  transition:border-color .2s;
+}
+.cookie-area:focus{border-color:rgba(34,211,238,0.4);}
+.cookie-area::placeholder{color:var(--t3);}
+.cookie-area:disabled{opacity:.4;cursor:not-allowed;}
 
-    /* ── Log Box ── */
-    .log-box {
-      background: var(--bg); border-radius: 10px;
-      padding: 14px 16px; height: 165px; overflow-y: auto;
-      font-size: 12px;
-      font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
-      color: var(--text-3); line-height: 1.75;
-    }
-    .log-box .l    { color: var(--text-3); }
-    .log-box .l-ok { color: var(--primary-dark); }
-    .log-box .l-er { color: var(--danger); }
-    .log-box .l-in { color: var(--text-2); }
+/* remember row */
+.remember-row{
+  display:flex;align-items:center;gap:8px;margin-top:10px;
+  font-size:12px;color:var(--t3);cursor:pointer;
+}
+.remember-row input[type=checkbox]{
+  width:15px;height:15px;accent-color:var(--cyan);cursor:pointer;
+}
+.remember-row:hover{color:var(--t2);}
 
-    /* ── Help Modal ── */
-    .modal-bg {
-      display: none; position: fixed; inset: 0;
-      background: rgba(0,0,0,.4); z-index: 200;
-      align-items: center; justify-content: center;
-    }
-    .modal-bg.show { display: flex; }
-    .modal {
-      background: var(--white); border-radius: 16px;
-      padding: 32px; max-width: 520px; width: 90%;
-      box-shadow: 0 20px 60px rgba(0,0,0,.15);
-    }
-    .modal h2 { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
-    .modal p  { font-size: 14px; color: var(--text-2); line-height: 1.7; margin-bottom: 12px; }
-    .modal ol { padding-left: 20px; font-size: 14px; color: var(--text-2); line-height: 2; }
-    .modal-close {
-      margin-top: 20px; width: 100%; height: 44px;
-      background: var(--primary); border: none; border-radius: 10px;
-      font-size: 14px; font-weight: 600; color: #fff;
-      cursor: pointer; font-family: inherit;
-    }
+/* field row */
+.fields{display:flex;gap:14px;margin-top:2px;}
+.field{flex:1;display:flex;flex-direction:column;gap:7px;}
+.field-label{font-size:12px;font-weight:600;color:var(--t2);}
+.field-box{
+  display:flex;align-items:center;height:42px;padding:0 14px;
+  background:rgba(0,0,0,0.3);border:1px solid var(--border);
+  border-radius:var(--r-sm);gap:8px;
+}
+.field-box input{
+  flex:1;background:none;border:none;outline:none;
+  font-size:14px;font-weight:500;color:var(--t1);font-family:inherit;min-width:0;
+}
+.field-box input:disabled{cursor:not-allowed;}
+.field-unit{font-size:11px;color:var(--t3);white-space:nowrap;}
 
-    /* ── Footer ── */
-    .footer { text-align: center; font-size: 12px; color: var(--text-3); }
+/* error */
+.err-msg{
+  display:none;margin-top:10px;padding:9px 12px;
+  background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.2);
+  border-radius:var(--r-sm);font-size:12px;color:var(--red);
+}
+.err-msg.show{display:block;}
 
-    /* ── Responsive ── */
-    @media (max-width: 600px) {
-      .nav  { padding: 0 20px; }
-      .main { padding: 24px 16px 48px; }
-      .settings-row { flex-direction: column; }
-      .hero-title { font-size: 24px; }
-      .logo-text  { font-size: 15px; }
-    }
-  </style>
+/* run button */
+.run-btn{
+  position:relative;overflow:hidden;
+  width:100%;height:50px;border:none;border-radius:var(--r-md);
+  font-family:'Syne',sans-serif;font-size:15px;font-weight:700;
+  letter-spacing:0.5px;color:#fff;cursor:pointer;
+  background:linear-gradient(135deg,#0891b2,var(--cyan));
+  box-shadow:0 0 30px rgba(34,211,238,0.25);
+  transition:all .25s;
+}
+.run-btn::before{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.18) 50%,transparent 100%);
+  transform:translateX(-100%);transition:transform .6s;
+}
+.run-btn:hover::before{transform:translateX(100%);}
+.run-btn:hover:not(:disabled){box-shadow:0 0 40px rgba(34,211,238,0.4);transform:translateY(-1px);}
+.run-btn:active:not(:disabled){transform:translateY(0);}
+.run-btn.stopping{
+  background:linear-gradient(135deg,#b45309,#f59e0b);
+  box-shadow:0 0 30px rgba(245,158,11,0.25);
+}
+.run-btn.stopping:hover:not(:disabled){box-shadow:0 0 40px rgba(245,158,11,0.4);}
+.run-btn:disabled{opacity:.45;cursor:not-allowed;transform:none!important;}
+
+/* ── right panel ── */
+.right{
+  display:flex;flex-direction:column;gap:20px;
+  padding:28px 28px 28px 24px;
+  overflow-y:auto;
+}
+
+/* ── status ring card ── */
+.status-card{
+  display:flex;align-items:center;gap:28px;
+  background:var(--glass);
+  backdrop-filter:blur(20px) saturate(180%);
+  -webkit-backdrop-filter:blur(20px) saturate(180%);
+  border:1px solid var(--glass-b);border-radius:var(--r-lg);
+  padding:24px 28px;
+}
+.ring-wrap{position:relative;width:120px;height:120px;flex-shrink:0;}
+.ring-wrap svg{transform:rotate(-90deg);}
+.ring-center{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:2px;
+}
+.ring-pct{
+  font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--t1);
+  line-height:1;
+}
+.ring-label{font-size:10px;font-weight:500;color:var(--t3);letter-spacing:.5px;}
+
+.status-info{flex:1;min-width:0;}
+.status-title{
+  font-family:'Syne',sans-serif;font-size:22px;font-weight:800;
+  color:var(--t1);margin-bottom:6px;
+}
+.status-sub{font-size:13px;color:var(--t2);margin-bottom:14px;}
+.prog-text{
+  font-size:13px;color:var(--t2);
+  display:flex;align-items:center;gap:6px;
+}
+.prog-val{font-weight:600;color:var(--cyan);}
+
+/* ── terminal ── */
+.terminal{
+  flex:1;display:flex;flex-direction:column;
+  background:rgba(0,0,0,0.45);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid var(--glass-b);border-radius:var(--r-lg);
+  overflow:hidden;min-height:260px;
+}
+.term-bar{
+  display:flex;align-items:center;gap:12px;
+  padding:10px 16px;
+  background:rgba(255,255,255,0.03);
+  border-bottom:1px solid var(--border);
+}
+.t-dots{display:flex;gap:6px;}
+.t-dot{
+  width:11px;height:11px;border-radius:50%;
+  transition:opacity .2s;
+}
+.t-dot-r{background:#ff5f57;}
+.t-dot-y{background:#febc2e;}
+.t-dot-g{background:#28c840;}
+.term-title{
+  flex:1;text-align:center;
+  font-size:11px;font-weight:500;color:var(--t3);
+  font-family:'JetBrains Mono',monospace;letter-spacing:.5px;
+}
+.term-clear{
+  font-size:11px;color:var(--t3);background:none;border:none;
+  cursor:pointer;font-family:'JetBrains Mono',monospace;
+  padding:2px 8px;border-radius:4px;transition:all .15s;
+}
+.term-clear:hover{background:var(--glass-hi);color:var(--t2);}
+.term-out{
+  flex:1;overflow-y:auto;
+  padding:14px 18px;
+  font-size:12px;font-family:'JetBrains Mono',monospace;
+  line-height:1.85;color:var(--t3);
+}
+.term-out::-webkit-scrollbar{width:4px;}
+.term-out::-webkit-scrollbar-track{background:transparent;}
+.term-out::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px;}
+
+.log-line{display:block;animation:fadein .2s ease;}
+@keyframes fadein{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:translateX(0)}}
+.log-ok  {color:#5eead4;}
+.log-done{color:#34d399;}
+.log-err {color:#fca5a5;}
+.log-info{color:#94a3b8;}
+.log-warn{color:#fcd34d;}
+
+/* ── history ── */
+.history-card{
+  background:var(--glass);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--glass-b);border-radius:var(--r-lg);
+  padding:20px 22px;
+}
+.history-title{
+  font-family:'Syne',sans-serif;font-size:13px;font-weight:700;
+  color:var(--t2);letter-spacing:.5px;text-transform:uppercase;
+  margin-bottom:14px;display:flex;align-items:center;gap:8px;
+}
+.history-list{display:flex;flex-direction:column;gap:8px;}
+.hist-item{
+  display:flex;align-items:center;gap:10px;padding:10px 14px;
+  background:rgba(0,0,0,0.2);border:1px solid var(--border);
+  border-radius:var(--r-sm);transition:border-color .2s;
+}
+.hist-item:hover{border-color:var(--glass-b2);}
+.hist-dot{
+  width:8px;height:8px;border-radius:50%;flex-shrink:0;
+}
+.hist-time{font-size:11px;color:var(--t3);font-family:'JetBrains Mono',monospace;flex-shrink:0;width:80px;}
+.hist-target{font-size:12px;color:var(--t2);flex-shrink:0;}
+.hist-spacer{flex:1;}
+.hist-mins{
+  font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;
+}
+.hist-badge{
+  padding:2px 8px;border-radius:6px;font-size:10px;font-weight:600;
+}
+.s-done   {color:var(--green);} .s-done .hist-dot  {background:var(--green);} .s-done .hist-badge{background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.2);color:var(--green);}
+.s-stopped{color:var(--t2);}   .s-stopped .hist-dot{background:var(--t3);}   .s-stopped .hist-badge{background:var(--glass);border:1px solid var(--border);color:var(--t3);}
+.s-error  {color:var(--red);}  .s-error .hist-dot  {background:var(--red);}  .s-error .hist-badge{background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.2);color:var(--red);}
+.s-running{color:var(--cyan);} .s-running .hist-dot{background:var(--cyan);animation:pulse 1.4s ease-in-out infinite;} .s-running .hist-badge{background:var(--cyan-dim);border:1px solid rgba(34,211,238,0.2);color:var(--cyan);}
+
+/* ── modal ── */
+.modal-bg{
+  display:none;position:fixed;inset:0;z-index:200;
+  background:rgba(0,0,0,0.65);backdrop-filter:blur(8px);
+  align-items:center;justify-content:center;
+}
+.modal-bg.show{display:flex;}
+.modal{
+  background:linear-gradient(145deg,rgba(15,23,42,0.95),rgba(6,9,15,0.98));
+  border:1px solid var(--glass-b2);border-radius:var(--r-lg);
+  padding:32px;max-width:500px;width:90%;
+  box-shadow:0 24px 64px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.04) inset;
+}
+.modal h2{
+  font-family:'Syne',sans-serif;font-size:20px;font-weight:800;
+  color:var(--t1);margin-bottom:20px;
+}
+.modal ol{padding-left:20px;color:var(--t2);font-size:13.5px;line-height:2.2;}
+.modal ol li b{color:var(--cyan);}
+.modal p{font-size:13px;color:var(--t3);margin-top:14px;line-height:1.7;}
+.modal-close{
+  margin-top:24px;width:100%;height:46px;border:none;border-radius:var(--r-sm);
+  background:linear-gradient(135deg,#0891b2,var(--cyan));
+  font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:#fff;
+  cursor:pointer;letter-spacing:.3px;
+  box-shadow:0 0 20px rgba(34,211,238,0.2);transition:all .2s;
+}
+.modal-close:hover{box-shadow:0 0 30px rgba(34,211,238,0.35);}
+
+/* ── footer ── */
+.footer-note{
+  text-align:center;font-size:11px;color:var(--t3);
+  padding-bottom:8px;
+}
+
+/* ── responsive ── */
+@media(max-width:900px){
+  .split{grid-template-columns:1fr;}
+  .left{border-right:none;border-bottom:1px solid var(--border);}
+  .topbar{padding:0 20px;}
+}
+@media(max-width:500px){
+  .left,.right{padding:20px 16px;}
+  .status-card{flex-direction:column;text-align:center;}
+  .prog-text{justify-content:center;}
+}
+
+/* ── stagger load animation ── */
+.gcard,.status-card,.terminal,.history-card{
+  opacity:0;animation:slideup .5s ease forwards;
+}
+.gcard:nth-child(1){animation-delay:.05s}
+.gcard:nth-child(2){animation-delay:.12s}
+.gcard:nth-child(3){animation-delay:.19s}
+.status-card{animation-delay:.08s}
+.terminal{animation-delay:.16s}
+.history-card{animation-delay:.24s}
+@keyframes slideup{
+  from{opacity:0;transform:translateY(14px)}
+  to{opacity:1;transform:translateY(0)}
+}
+</style>
 </head>
 <body>
-
-<!-- Nav -->
-<nav class="nav">
-  <div class="logo-mark">📖</div>
-  <span class="logo-text">微信读书 · 自动阅读</span>
-  <div class="nav-spacer"></div>
-  <button class="help-btn" onclick="showHelp()">ℹ️ 使用帮助</button>
-</nav>
-
-<!-- Main -->
-<div class="main">
-  <h1 class="hero-title">微信读书自动刷时长</h1>
-  <p class="hero-sub">粘贴 Cookie 后一键启动，自动帮你刷满每天阅读时长 📚</p>
-
-  <!-- Step 1 -->
-  <div class="card">
-    <div class="step-header">
-      <div class="step-badge">1</div>
-      <div>
-        <div class="step-title">粘贴你的 Cookie</div>
-        <div class="step-desc">在浏览器打开微信读书网页版，将登录信息粘贴到下方</div>
-      </div>
-    </div>
-    <div class="tip-row">
-      💡 支持三种格式：纯 Cookie 字符串 / curl 命令 / Chrome 请求头，任选其一粘贴即可
-    </div>
-    <textarea id="cookie-input" class="cookie-area"
-      placeholder="wr_skey=SxwIVqGw; wr_vid=384424909; ...
-（或粘贴完整的 curl 'https://weread.qq.com/...' -H 'cookie: ...' 命令）"></textarea>
-    <div id="cookie-err" class="err-msg"></div>
-  </div>
-
-  <!-- Step 2 -->
-  <div class="card">
-    <div class="step-header">
-      <div class="step-badge">2</div>
-      <div>
-        <div class="step-title">配置阅读参数</div>
-        <div class="step-desc">默认值适合大多数场景，一般无需修改</div>
-      </div>
-    </div>
-    <div class="settings-row">
-      <div class="field">
-        <label class="field-label">目标时长</label>
-        <div class="field-box">
-          <input type="number" id="target-minutes" value="60" min="1" max="360">
-          <span class="field-unit">分钟</span>
-        </div>
-      </div>
-      <div class="field">
-        <label class="field-label">请求间隔</label>
-        <div class="field-box">
-          <input type="text" id="interval" value="28-35">
-          <span class="field-unit">秒（随机区间）</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Step 3 -->
-  <div class="card">
-    <div class="step-header">
-      <div class="step-badge">3</div>
-      <div>
-        <div class="step-title">开始自动阅读</div>
-        <div class="step-desc" id="btn-desc">点击按钮即可启动，程序将在后台自动运行</div>
-      </div>
-    </div>
-    <button class="run-btn" id="run-btn" onclick="toggleRun()">▶&nbsp; 开始阅读</button>
-  </div>
-
-  <!-- Status -->
-  <div class="card">
-    <div class="status-header">
-      <div class="status-dot" id="status-dot"></div>
-      <span class="status-title">运行状态</span>
-      <div class="status-badge" id="status-badge">未运行</div>
-    </div>
-    <div class="prog-row" id="prog-row" style="display:none">
-      <div class="prog-label">
-        <span class="left">阅读进度</span>
-        <span class="right" id="prog-text">0 / 0 分钟</span>
-      </div>
-      <div class="prog-track">
-        <div class="prog-fill" id="prog-fill" style="width:0%"></div>
-      </div>
-    </div>
-    <div class="log-box" id="log-box"><span class="l">等待启动...</span></div>
-  </div>
-
-  <div class="footer">开源项目 · 仅供学习交流使用</div>
+<div class="aurora" aria-hidden="true">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
 </div>
 
-<!-- Help Modal -->
-<div class="modal-bg" id="modal-bg" onclick="closeHelp(event)">
+<div class="app">
+  <!-- topbar -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-glyph">📖</div>
+      <span class="brand-name">WxReader<span class="brand-dot">.</span></span>
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="top-status" id="top-status">
+      <div class="status-pulse" id="status-pulse"></div>
+      <span id="status-txt">等待启动</span>
+    </div>
+    <button class="help-pill" onclick="openHelp()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      使用帮助
+    </button>
+  </header>
+
+  <div class="split">
+    <!-- ── left: config ── -->
+    <aside class="left">
+
+      <!-- step 1 -->
+      <div class="gcard">
+        <div class="step-h">
+          <div class="step-n">01</div>
+          <div>
+            <div class="step-label">Cookie 登录凭证</div>
+            <div class="step-sub">从浏览器开发者工具中复制</div>
+          </div>
+        </div>
+        <div class="fmt-badges">
+          <span class="fmt-badge active" id="fmt-plain">纯字符串</span>
+          <span class="fmt-badge" id="fmt-curl">curl 命令</span>
+          <span class="fmt-badge" id="fmt-headers">请求头</span>
+        </div>
+        <textarea id="cookie-input" class="cookie-area"
+          placeholder="wr_skey=AbCd1234; wr_vid=384424909; wr_name=...&#10;&#10;（也可粘贴完整 curl 命令或 Chrome 请求头）"
+          oninput="detectFmt(this.value)"></textarea>
+        <label class="remember-row">
+          <input type="checkbox" id="remember-cb">
+          <span>记住 Cookie（加密存储到本地数据库）</span>
+        </label>
+        <div id="cookie-err" class="err-msg"></div>
+      </div>
+
+      <!-- step 2 -->
+      <div class="gcard">
+        <div class="step-h">
+          <div class="step-n">02</div>
+          <div>
+            <div class="step-label">阅读参数</div>
+            <div class="step-sub">默认值无需修改</div>
+          </div>
+        </div>
+        <div class="fields">
+          <div class="field">
+            <label class="field-label">目标时长</label>
+            <div class="field-box">
+              <input type="number" id="target-minutes" value="60" min="1" max="360">
+              <span class="field-unit">分钟</span>
+            </div>
+          </div>
+          <div class="field">
+            <label class="field-label">请求间隔</label>
+            <div class="field-box">
+              <input type="text" id="interval" value="28-35">
+              <span class="field-unit">秒随机</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- step 3 -->
+      <div class="gcard">
+        <div class="step-h">
+          <div class="step-n">03</div>
+          <div>
+            <div class="step-label">启动</div>
+            <div class="step-sub" id="btn-sub">配置完成后点击开始</div>
+          </div>
+        </div>
+        <button class="run-btn" id="run-btn" onclick="toggleRun()">
+          ▶&ensp;开始阅读
+        </button>
+      </div>
+
+      <div class="footer-note">开源工具 · 仅供学习交流</div>
+    </aside>
+
+    <!-- ── right: status + terminal + history ── -->
+    <main class="right">
+
+      <!-- status ring -->
+      <div class="status-card" id="status-card">
+        <div class="ring-wrap">
+          <svg width="120" height="120" viewBox="0 0 120 120">
+            <defs>
+              <linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#22d3ee"/>
+                <stop offset="100%" stop-color="#0ea5e9"/>
+              </linearGradient>
+            </defs>
+            <!-- track -->
+            <circle cx="60" cy="60" r="50" fill="none"
+              stroke="rgba(255,255,255,0.07)" stroke-width="7"/>
+            <!-- fill -->
+            <circle cx="60" cy="60" r="50" fill="none"
+              stroke="url(#rg)" stroke-width="7"
+              stroke-linecap="round"
+              stroke-dasharray="314.16"
+              stroke-dashoffset="314.16"
+              id="ring-fill"
+              style="transition:stroke-dashoffset .7s ease"/>
+          </svg>
+          <div class="ring-center">
+            <span class="ring-pct" id="ring-pct">0%</span>
+            <span class="ring-label">PROGRESS</span>
+          </div>
+        </div>
+        <div class="status-info">
+          <div class="status-title" id="s-title">等待启动</div>
+          <div class="status-sub" id="s-sub">粘贴 Cookie 后点击开始阅读</div>
+          <div class="prog-text" id="s-prog" style="display:none">
+            已累计&ensp;<span class="prog-val" id="s-done-min">0</span>&ensp;/&ensp;<span id="s-total-min">0</span>&ensp;分钟
+          </div>
+        </div>
+      </div>
+
+      <!-- terminal -->
+      <div class="terminal">
+        <div class="term-bar">
+          <div class="t-dots">
+            <span class="t-dot t-dot-r"></span>
+            <span class="t-dot t-dot-y"></span>
+            <span class="t-dot t-dot-g"></span>
+          </div>
+          <span class="term-title">wxreader — 实时日志</span>
+          <button class="term-clear" onclick="clearLog()">clear</button>
+        </div>
+        <div class="term-out" id="log-out">
+          <span class="log-line log-info">$ wxreader --wait-for-input</span>
+        </div>
+      </div>
+
+      <!-- history -->
+      <div class="history-card" id="history-card">
+        <div class="history-title">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          历史记录
+        </div>
+        <div class="history-list" id="history-list">
+          <span style="font-size:12px;color:var(--t3)">暂无记录</span>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- help modal -->
+<div class="modal-bg" id="modal-bg" onclick="bgClose(event)">
   <div class="modal">
     <h2>📖 如何获取 Cookie？</h2>
-    <p>Cookie 是你的微信读书登录凭证，获取步骤如下：</p>
     <ol>
-      <li>用 Chrome 浏览器打开 <b>weread.qq.com</b> 并扫码登录</li>
-      <li>按 <b>F12</b>（Mac 用 ⌘⌥I）打开开发者工具</li>
+      <li>用 <b>Chrome</b> 打开 weread.qq.com 并扫码登录</li>
+      <li>按 <b>F12</b>（Mac：⌘⌥I）打开开发者工具</li>
       <li>点击顶部 <b>Network（网络）</b> 标签</li>
-      <li>刷新页面，在左侧请求列表里随便点一个</li>
-      <li>右键该请求 → <b>Copy → Copy as cURL</b></li>
-      <li>粘贴到上方输入框即可</li>
+      <li>刷新页面，在请求列表中随便点一个</li>
+      <li>右键 → <b>Copy → Copy as cURL</b></li>
+      <li>粘贴到左侧输入框即可</li>
     </ol>
-    <p style="margin-top:14px">
-      <b>Cookie 有效期约数天</b>，失效后需重新获取。<br>
-      程序会自动尝试刷新，如果提示验证失败请重新粘贴。
-    </p>
+    <p>💡 也可直接复制右键菜单中 <b>Headers → cookie</b> 的值（纯字符串格式）。</p>
+    <p>⚠️ Cookie 有效期约数天，过期后需重新获取。勾选「记住」可在刷新后自动填充。</p>
     <button class="modal-close" onclick="closeHelp()">我知道了</button>
   </div>
 </div>
@@ -344,21 +636,136 @@
 <script>
 'use strict';
 
+// ── state ──────────────────────────────────────────────────────────────────────
 let running   = false;
 let logOffset = 0;
 let pollTimer = null;
+const CIRC    = 314.16; // 2π×50
 
-// ── 开始 / 停止 ──────────────────────────────────────────────────────────────
+// ── init ───────────────────────────────────────────────────────────────────────
+(async () => {
+  // Load saved config
+  try {
+    const cfg = await fetch('/api/config').then(r => r.json());
+    if (cfg.target_minutes) document.getElementById('target-minutes').value = cfg.target_minutes;
+    if (cfg.interval)       document.getElementById('interval').value       = cfg.interval;
+    if (cfg.remember)       document.getElementById('remember-cb').checked  = true;
+    if (cfg.cookie)         document.getElementById('cookie-input').value   = cfg.cookie;
+    if (cfg.cookie)         detectFmt(cfg.cookie);
+  } catch(e) {}
+
+  // Restore last session
+  try {
+    const r = await fetch('/api/restore').then(r => r.json());
+    if (r.has_session) {
+      logOffset = r.offset || 0;
+      (r.logs || []).forEach(l => appendLog(l));
+      updateProgress(r.progress_done || 0, r.progress_total || 0);
+      applyStatus(r.status, r.progress_done, r.progress_total);
+      if (r.running) {
+        setRunning(true);
+        startPolling();
+      }
+    }
+  } catch(e) {}
+
+  // Load history
+  loadHistory();
+})();
+
+// ── helpers ────────────────────────────────────────────────────────────────────
+function detectFmt(val) {
+  const v = val.trim();
+  document.getElementById('fmt-curl').classList.toggle('active',    v.startsWith('curl '));
+  document.getElementById('fmt-headers').classList.toggle('active', !v.startsWith('curl ') && v.includes(':') && v.includes('\n'));
+  document.getElementById('fmt-plain').classList.toggle('active',   !v.startsWith('curl ') && !(v.includes(':') && v.includes('\n')));
+}
+
+function setRing(pct) {
+  const v = Math.max(0, Math.min(100, pct));
+  document.getElementById('ring-fill').style.strokeDashoffset = CIRC - (CIRC * v / 100);
+  document.getElementById('ring-pct').textContent = Math.round(v) + '%';
+}
+
+function updateProgress(done, total) {
+  document.getElementById('s-done-min').textContent  = (done  * 0.5).toFixed(1);
+  document.getElementById('s-total-min').textContent = (total * 0.5).toFixed(0);
+  document.getElementById('s-prog').style.display = total > 0 ? 'flex' : 'none';
+  if (total > 0) setRing((done / total) * 100);
+}
+
+function applyStatus(status, done, total) {
+  const ts  = document.getElementById('top-status');
+  const txt = document.getElementById('status-txt');
+  const ti  = document.getElementById('s-title');
+  const sub = document.getElementById('s-sub');
+  ts.className = 'top-status ' + (status === 'running' ? 'running' : status === 'done' ? 'done' : status === 'error' ? 'error' : '');
+  const statusMap = {
+    running: ['运行中', `已完成 ${(done*0.5).toFixed(1)} / ${(total*0.5).toFixed(0)} 分钟`, '自动阅读进行中，可随时停止'],
+    done:    ['已完成', '任务完成', `成功累计 ${(done*0.5).toFixed(1)} 分钟`],
+    stopped: ['已停止', '任务已停止', `累计 ${(done*0.5).toFixed(1)} 分钟`],
+    error:   ['异常', '运行异常', '请检查日志'],
+  };
+  const [t, title, s] = statusMap[status] || ['等待', '等待启动', '粘贴 Cookie 后点击开始'];
+  txt.textContent = t; ti.textContent = title; sub.textContent = s;
+}
+
+// ── log ────────────────────────────────────────────────────────────────────────
+function appendLog(line) {
+  const out = document.getElementById('log-out');
+  const span = document.createElement('span');
+  span.className = 'log-line ' + getLogClass(line);
+  span.textContent = line;
+  out.appendChild(span);
+  out.appendChild(Object.assign(document.createElement('br'), {}));
+  out.scrollTop = out.scrollHeight;
+}
+
+function getLogClass(line) {
+  if (line.includes('✅'))  return 'log-ok';
+  if (line.includes('🎉'))  return 'log-done';
+  if (line.includes('❌') || line.includes('⚠️')) return 'log-err';
+  if (line.includes('⏹'))   return 'log-warn';
+  return 'log-info';
+}
+
+function clearLog() {
+  document.getElementById('log-out').innerHTML =
+    '<span class="log-line log-info">$ wxreader --cleared</span>';
+}
+
+// ── history ────────────────────────────────────────────────────────────────────
+async function loadHistory() {
+  try {
+    const items = await fetch('/api/history').then(r => r.json());
+    const list  = document.getElementById('history-list');
+    if (!items.length) return;
+    list.innerHTML = items.map(s => {
+      const cls   = 's-' + s.status;
+      const label = {done:'完成',stopped:'停止',error:'异常',running:'运行中'}[s.status] || s.status;
+      return `<div class="hist-item ${cls}">
+        <div class="hist-dot"></div>
+        <span class="hist-time">${s.created_str}</span>
+        <span class="hist-target">目标 ${s.target_minutes} min</span>
+        <div class="hist-spacer"></div>
+        <span class="hist-mins" style="color:var(--t2)">${s.duration_min.toFixed(1)} min</span>
+        <span class="hist-badge">${label}</span>
+      </div>`;
+    }).join('');
+  } catch(e) {}
+}
+
+// ── run control ────────────────────────────────────────────────────────────────
 function toggleRun() {
   running ? stopReading() : startReading();
 }
 
-function startReading() {
+async function startReading() {
   const cookie  = document.getElementById('cookie-input').value.trim();
   const minutes = parseInt(document.getElementById('target-minutes').value) || 60;
   const interval = document.getElementById('interval').value.trim() || '28-35';
-
-  const errEl = document.getElementById('cookie-err');
+  const remember = document.getElementById('remember-cb').checked;
+  const errEl   = document.getElementById('cookie-err');
   errEl.classList.remove('show');
 
   if (!cookie) {
@@ -368,16 +775,15 @@ function startReading() {
   }
 
   setBtnState('loading');
+  try {
+    const res = await fetch('/api/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({cookie, target_minutes: minutes, interval, remember}),
+    }).then(r => r.json());
 
-  fetch('/api/start', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cookie, target_minutes: minutes, interval }),
-  })
-  .then(r => r.json())
-  .then(data => {
-    if (data.error) {
-      errEl.textContent = data.error;
+    if (res.error) {
+      errEl.textContent = res.error;
       errEl.classList.add('show');
       setBtnState('idle');
       return;
@@ -386,129 +792,77 @@ function startReading() {
     logOffset = 0;
     clearLog();
     startPolling();
-  })
-  .catch(e => {
-    errEl.textContent = '启动请求失败：' + e.message;
+    applyStatus('running', 0, 0);
+    setRing(0);
+  } catch(e) {
+    errEl.textContent = '请求失败：' + e.message;
     errEl.classList.add('show');
     setBtnState('idle');
-  });
+  }
 }
 
-function stopReading() {
-  fetch('/api/stop', { method: 'POST' }).catch(() => {});
+async function stopReading() {
   setBtnState('stopping');
-}
-
-// ── 状态切换 ─────────────────────────────────────────────────────────────────
-function setBtnState(state) {
-  const btn = document.getElementById('run-btn');
-  btn.disabled = (state === 'loading' || state === 'stopping');
-  if (state === 'loading')  { btn.textContent = '正在启动...'; btn.className = 'run-btn'; }
-  if (state === 'stopping') { btn.textContent = '正在停止...'; btn.className = 'run-btn stopping'; }
-  if (state === 'idle')     { btn.innerHTML = '▶&nbsp; 开始阅读'; btn.className = 'run-btn'; }
-  if (state === 'running')  { btn.innerHTML = '⏹&nbsp; 停止运行'; btn.className = 'run-btn stopping'; }
+  try { await fetch('/api/stop', {method:'POST'}); } catch(e) {}
 }
 
 function setRunning(on) {
   running = on;
-  const dot   = document.getElementById('status-dot');
-  const badge = document.getElementById('status-badge');
-  const desc  = document.getElementById('btn-desc');
-  const inputs = ['cookie-input', 'target-minutes', 'interval'];
-
-  if (on) {
-    setBtnState('running');
-    dot.className   = 'status-dot running';
-    badge.className = 'status-badge running';
-    badge.textContent = '运行中';
-    desc.textContent  = '正在自动阅读，点击上方按钮可随时停止';
-    document.getElementById('prog-row').style.display = 'flex';
-    inputs.forEach(id => document.getElementById(id).disabled = true);
-  } else {
-    setBtnState('idle');
-    inputs.forEach(id => document.getElementById(id).disabled = false);
-  }
+  setBtnState(on ? 'running' : 'idle');
+  ['cookie-input','target-minutes','interval'].forEach(id => {
+    document.getElementById(id).disabled = on;
+  });
+  document.getElementById('btn-sub').textContent =
+    on ? '正在自动阅读，点击可停止' : '配置完成后点击开始';
 }
 
-function setDone() {
-  const dot   = document.getElementById('status-dot');
-  const badge = document.getElementById('status-badge');
-  dot.className   = 'status-dot done';
-  badge.className = 'status-badge done';
-  badge.textContent = '已完成';
-  document.getElementById('btn-desc').textContent = '点击按钮即可再次启动';
+function setBtnState(state) {
+  const btn = document.getElementById('run-btn');
+  const map = {
+    idle:     [false, '▶&ensp;开始阅读',  ''],
+    loading:  [true,  '正在启动...',       ''],
+    running:  [false, '⏹&ensp;停止运行',  'stopping'],
+    stopping: [true,  '正在停止...',       'stopping'],
+  };
+  const [dis, html, cls] = map[state] || map.idle;
+  btn.disabled   = dis;
+  btn.innerHTML  = html;
+  btn.className  = 'run-btn ' + cls;
 }
 
-// ── 日志 ─────────────────────────────────────────────────────────────────────
-function clearLog() {
-  document.getElementById('log-box').innerHTML = '';
-}
-
-function appendLog(line) {
-  const box = document.getElementById('log-box');
-  const span = document.createElement('span');
-  let cls = 'l';
-  if (line.includes('✅') || line.includes('🎉') || line.includes('✅'))  cls = 'l-ok';
-  else if (line.includes('❌') || line.includes('⚠️'))                    cls = 'l-er';
-  else if (line.includes('📚') || line.includes('📖') || line.includes('⏱')) cls = 'l-in';
-  span.className = cls;
-  span.textContent = line;
-  box.appendChild(span);
-  box.appendChild(document.createElement('br'));
-  box.scrollTop = box.scrollHeight;
-}
-
-// ── 进度 ─────────────────────────────────────────────────────────────────────
-function updateProgress(done, total) {
-  if (total <= 0) return;
-  const pct = Math.min(100, (done / total) * 100);
-  document.getElementById('prog-fill').style.width = pct + '%';
-  document.getElementById('prog-text').textContent =
-    `${(done * 0.5).toFixed(1)} / ${(total * 0.5).toFixed(0)} 分钟`;
-}
-
-// ── 轮询 ─────────────────────────────────────────────────────────────────────
+// ── poll ───────────────────────────────────────────────────────────────────────
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer);
-  poll();
-  pollTimer = setInterval(poll, 1000);
+  poll(); pollTimer = setInterval(poll, 1000);
 }
 
-function poll() {
-  fetch(`/api/poll?offset=${logOffset}`)
-  .then(r => r.json())
-  .then(data => {
-    (data.lines || []).forEach(appendLog);
-    logOffset = data.offset ?? logOffset;
-    updateProgress(data.progress_done || 0, data.progress_total || 0);
+async function poll() {
+  try {
+    const d = await fetch(`/api/poll?offset=${logOffset}`).then(r => r.json());
+    (d.lines || []).forEach(appendLog);
+    logOffset = d.offset ?? logOffset;
+    updateProgress(d.progress_done || 0, d.progress_total || 0);
 
-    if (data.done) {
+    if (d.done) {
       setRunning(false);
-      setDone();
-      clearInterval(pollTimer);
-      pollTimer = null;
-    } else if (!data.running && running) {
-      // 外部停止或异常终止
+      applyStatus('done', d.progress_done, d.progress_total);
+      clearInterval(pollTimer); pollTimer = null;
+      loadHistory();
+    } else if (!d.running && running) {
       setRunning(false);
+      applyStatus('stopped', d.progress_done, d.progress_total);
+      loadHistory();
+    } else if (d.running) {
+      applyStatus('running', d.progress_done, d.progress_total);
     }
-  })
-  .catch(e => {
-    appendLog('⚠️ 轮询出错：' + e.message);
-  });
+  } catch(e) {}
 }
 
-// ── 帮助弹窗 ─────────────────────────────────────────────────────────────────
-function showHelp() {
-  document.getElementById('modal-bg').classList.add('show');
-}
-function closeHelp(e) {
-  if (!e || e.target === document.getElementById('modal-bg')) {
-    document.getElementById('modal-bg').classList.remove('show');
-  }
-}
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeHelp();
-});
+// ── modal ──────────────────────────────────────────────────────────────────────
+function openHelp()  { document.getElementById('modal-bg').classList.add('show'); }
+function closeHelp() { document.getElementById('modal-bg').classList.remove('show'); }
+function bgClose(e)  { if (e.target === document.getElementById('modal-bg')) closeHelp(); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHelp(); });
 </script>
 </body>
 </html>
