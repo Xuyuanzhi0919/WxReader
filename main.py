@@ -64,7 +64,7 @@ def cmd_cookie(raw_cookie: str):
     from src.api import build_session, get_user_info
 
     cookie_dict = parse_cookie_string(raw_cookie)
-    missing = [f for f in ["wr_skey", "wr_vid"] if not cookie_dict.get(f)]
+    missing = [f for f in ["wr_skey", "wr_vid"] if not cookie_dict.get(f)]  # 必要字段检查
     if missing:
         logger.error(f"Cookie 字符串中缺少必要字段: {', '.join(missing)}")
         logger.info("示例格式: --cookie \"wr_skey=abc123; wr_vid=12345678\"")

@@ -12,14 +12,17 @@ from loguru import logger
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 
-_COOKIE_FIELDS = ["wr_skey", "wr_vid"]
+_REQUIRED_FIELDS = ["wr_skey", "wr_vid"]
+
+# 所有 wr_* 字段都传给 API，避免因缺少字段导致 401
+_WR_PREFIX = "wr_"
 
 
 def parse_cookie_string(raw: str) -> dict:
     """
     解析浏览器复制的原始 Cookie 字符串
-    支持格式: "wr_skey=abc; wr_vid=123; wr_name=xxx"
-    返回提取出的字段字典，至少包含 wr_skey 和 wr_vid
+    支持格式: "wr_skey=abc; wr_vid=123; wr_name=xxx; ..."
+    提取所有 wr_* 字段，返回字典
     """
     result = {}
     for part in raw.split(";"):
@@ -29,7 +32,7 @@ def parse_cookie_string(raw: str) -> dict:
         key, _, value = part.partition("=")
         key = key.strip()
         value = value.strip()
-        if key in _COOKIE_FIELDS:
+        if key.startswith(_WR_PREFIX):
             result[key] = value
     return result
 
@@ -81,7 +84,7 @@ def run_setup_wizard(session_factory=None) -> bool:
             continue
 
         cookie_dict = parse_cookie_string(raw)
-        missing = [f for f in _COOKIE_FIELDS if not cookie_dict.get(f)]
+        missing = [f for f in _REQUIRED_FIELDS if not cookie_dict.get(f)]
         if missing:
             print(f"未找到必要字段: {', '.join(missing)}，请确认复制了完整 Cookie。\n")
             continue
