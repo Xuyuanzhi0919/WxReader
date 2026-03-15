@@ -651,19 +651,25 @@ document.querySelectorAll('[data-tab]').forEach(b=>{
     if(saved){$('cookie-ta').value=saved;detectFmt(saved);}
   }
 
-  // 3. 恢复本标签页自己的会话
+  // 3. 恢复本标签页自己的会话（仅恢复「运行中」的会话，已结束的不回填状态避免显示"异常"）
   const storedSid=localStorage.getItem(LS_SID);
   if(storedSid){
     try{
       const r=await get('/api/restore?session_id='+storedSid);
       if(r.has_session){
-        sessionId=r.session_id;
-        logOffset=r.offset||0;
-        clearLog();
-        (r.logs||[]).forEach(appendLog);
-        setProgress(r.progress_done||0,r.progress_total||0);
-        applyStatus(r.status,r.progress_done,r.progress_total);
-        if(r.running){setRunning(true);setBadge(true);startPoll();switchTab('status');}
+        if(r.running){
+          // 仍在运行：恢复完整状态并继续轮询
+          sessionId=r.session_id;
+          logOffset=r.offset||0;
+          clearLog();
+          (r.logs||[]).forEach(appendLog);
+          setProgress(r.progress_done||0,r.progress_total||0);
+          applyStatus('running',r.progress_done,r.progress_total);
+          setRunning(true);setBadge(true);startPoll();switchTab('status');
+        } else {
+          // 已结束（done/stopped/error）：清除旧 session_id，页面保持"等待启动"
+          localStorage.removeItem(LS_SID);
+        }
       }
     }catch(e){}
   }
