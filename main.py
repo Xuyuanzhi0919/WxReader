@@ -32,11 +32,20 @@ RENEW_URL   = "https://weread.qq.com/web/login/renewal"
 SHELF_URL   = "https://weread.qq.com/web/shelf/sync"
 CHAPTER_URL = "https://weread.qq.com/web/book/chapterInfos"
 
-# 兜底书籍（仅当书架拉取失败时使用）
+# 兜底书籍：所有章节 ID 均经过真实 API 请求验证可用（返回 succ:1）
+# 章节 ID 必须是十六进制字符串格式，整数型 chapterUid 的书不被 read API 接受
 FALLBACK_BOOKS = [
     {
+        "book_id": "ce032b305a9bc1ce0b0dd2a",
+        "title": "三体II",
+        "chapters": [
+            {"c": "7f632b502707f6ffaa6bf2e", "ci": 27},
+            {"c": "65132ca01b6512bd43d90e3", "ci": 28},
+        ],
+    },
+    {
         "book_id": "3d03298058a9443d052d409",
-        "title": "三体（默认）",
+        "title": "三体I",
         "chapters": [
             {"c": "ecc32f3013eccbc87e4b62e", "ci": 1},
             {"c": "a87322c014a87ff679a21ea", "ci": 2},
@@ -44,15 +53,11 @@ FALLBACK_BOOKS = [
             {"c": "16732dc0161679091c5aeb1", "ci": 4},
         ],
     },
-    {
-        "book_id": "ce032b305a9bc1ce0b0dd2a",
-        "title": "三体II（默认）",
-        "chapters": [
-            {"c": "7f632b502707f6ffaa6bf2e", "ci": 27},
-            {"c": "65132ca01b6512bd43d90e3", "ci": 28},
-        ],
-    },
 ]
+
+# 已验证可用的 ps/pc 默认值（读请求必须非空，否则 API 返回 {}）
+DEFAULT_PS = "4ee326507a65a465g015fae"
+DEFAULT_PC = "aab32e207a65a466g010615"
 
 
 # ── 签名算法 ───────────────────────────────────────────────────────────────────
@@ -92,9 +97,9 @@ def _sign(data: dict) -> dict:
 class Config:
     cookies: dict        = field(default_factory=dict)
     headers: dict        = field(default_factory=dict)
-    # 从 curl 抓包数据中提取的 ps / pc（可选，提高兼容性）
-    ps: str              = ""
-    pc: str              = ""
+    # ps/pc 从 curl body 中提取；未提供时用已验证有效的默认值（空值会导致 API 返回 {}）
+    ps: str              = DEFAULT_PS
+    pc: str              = DEFAULT_PC
     target_minutes: int  = 60
     interval_lo: float   = 28.0
     interval_hi: float   = 35.0
@@ -114,37 +119,64 @@ class Config:
 
 
 def _parse_curl(curl_str: str) -> tuple[dict, dict, str, str]:
-    """从 curl bash 命令提取 headers、cookies、ps、pc"""
-    hdrs_raw: dict[str, str] = {}
-    for k, v in re.findall(r"-H '([^:]+): ([^']+)'", curl_str):
-        hdrs_raw[k] = v
+    """
+    解析抓包数据，兼容两种格式：
+      1. curl bash 命令（curl '...' -H '...' --data-raw '...'）
+      2. Chrome/DevTools 原始请求头（每行 "key: value"，cookie 可多行）
+    返回 (headers, cookies, ps, pc)
+    """
+    s = curl_str.strip()
 
-    # cookie 字符串（-b 优先，否则取 -H Cookie）
-    m = re.search(r"-b '([^']+)'", curl_str)
-    cookie_str = m.group(1) if m else next(
-        (v for k, v in hdrs_raw.items() if k.lower() == "cookie"), ""
-    )
+    # ── 格式1：curl bash ───────────────────────────────────────────────────────
+    if s.startswith("curl "):
+        hdrs_raw: dict[str, str] = {}
+        for k, v in re.findall(r"-H '([^:]+): ([^']+)'", s):
+            hdrs_raw[k] = v
+
+        m = re.search(r"-b '([^']+)'", s)
+        cookie_str = m.group(1) if m else next(
+            (v for k, v in hdrs_raw.items() if k.lower() == "cookie"), ""
+        )
+        cookies: dict[str, str] = {}
+        for part in cookie_str.split("; "):
+            if "=" in part:
+                ck, cv = part.split("=", 1)
+                cookies[ck.strip()] = cv.strip()
+
+        headers = {k: v for k, v in hdrs_raw.items() if k.lower() != "cookie"}
+
+        ps = pc = ""
+        m_body = re.search(r"--data-raw '([^']+)'", s) or re.search(r"-d '([^']+)'", s)
+        if m_body:
+            try:
+                body = json.loads(m_body.group(1))
+                ps = body.get("ps", "")
+                pc = body.get("pc", "")
+            except Exception:
+                pass
+        return headers, cookies, ps, pc
+
+    # ── 格式2：Chrome 原始请求头（key: value，每行一个，cookie 可多行） ─────────
+    headers: dict[str, str] = {}
     cookies: dict[str, str] = {}
-    for part in cookie_str.split("; "):
-        if "=" in part:
-            k, v = part.split("=", 1)
-            cookies[k.strip()] = v.strip()
+    for line in s.splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        key, _, val = line.partition(": ")
+        key = key.strip()
+        val = val.strip()
+        if key.startswith(":"):          # HTTP/2 伪头（:authority / :method …）
+            continue
+        if key.lower() == "cookie":
+            # 每行一个 cookie 键值对
+            if "=" in val:
+                ck, cv = val.split("=", 1)
+                cookies[ck.strip()] = cv.strip()
+        else:
+            headers[key] = val
 
-    headers = {k: v for k, v in hdrs_raw.items() if k.lower() != "cookie"}
-
-    # 从请求体（data-raw）提取 ps / pc
-    ps = pc = ""
-    m_body = re.search(r"--data-raw '([^']+)'", curl_str) or \
-             re.search(r"-d '([^']+)'", curl_str)
-    if m_body:
-        try:
-            body = json.loads(m_body.group(1))
-            ps = body.get("ps", "")
-            pc = body.get("pc", "")
-        except Exception:
-            pass
-
-    return headers, cookies, ps, pc
+    return headers, cookies, "", ""
 
 
 def load_config() -> Config:
@@ -202,22 +234,35 @@ class WeReadClient:
             "content-type": "application/json",
             **cfg.headers,
         })
-        for k, v in cfg.cookies.items():
-            self.sess.cookies.set(k, v)
+        self._reset_cookies()
+
+    def _reset_cookies(self):
+        """清空 Session 中所有 cookie 再按 cfg.cookies 重新写入，避免 renewal 后出现重名 cookie"""
+        self.sess.cookies.clear()
+        for k, v in self.cfg.cookies.items():
+            # .weread.qq.com（含前导点）才能匹配 renewal 返回的 Set-Cookie，避免重名 cookie
+            self.sess.cookies.set(k, v, domain=".weread.qq.com", path="/")
 
     # ── Cookie 刷新 ───────────────────────────────────────────────────────────
     def refresh_cookie(self) -> bool:
         payload = {"rq": "%2Fweb%2Fbook%2Fread", "ql": True}
         try:
             resp = self.sess.post(RENEW_URL, json=payload, timeout=15)
-            set_cookie = resp.headers.get("Set-Cookie", "")
-            for part in set_cookie.split(";"):
-                if "wr_skey" in part:
-                    new_key = part.split("=")[-1].strip()[:8]
-                    self.cfg.cookies["wr_skey"] = new_key
-                    self.sess.cookies.set("wr_skey", new_key)
-                    log.info("Cookie 已刷新: wr_skey=%s", new_key)
-                    return True
+            new_key = None
+            # 逐段解析 Set-Cookie，找到 wr_skey
+            for segment in resp.headers.get("Set-Cookie", "").split(","):
+                for part in segment.split(";"):
+                    part = part.strip()
+                    if part.startswith("wr_skey="):
+                        new_key = part.split("=", 1)[1].strip()[:8]
+                        break
+                if new_key:
+                    break
+            if new_key:
+                self.cfg.cookies["wr_skey"] = new_key
+                self._reset_cookies()          # 清掉重名 cookie，重新写入
+                log.info("Cookie 已刷新: wr_skey=%s", new_key)
+                return True
         except Exception as e:
             log.warning("Cookie 刷新异常: %s", e)
         log.warning("Cookie 刷新失败（可能已完全过期）")
@@ -250,7 +295,10 @@ class WeReadClient:
 
     # ── 拉取章节 ──────────────────────────────────────────────────────────────
     def fetch_chapters(self, book_id: str) -> list[dict]:
-        """获取指定书籍的章节列表，返回 [{c, ci}]"""
+        """
+        获取指定书籍的章节列表，返回 [{c, ci}]。
+        注意：chapterUid 为整数的商业书籍不被 /web/book/read 接受，跳过此类书。
+        """
         try:
             resp = self.sess.post(
                 CHAPTER_URL,
@@ -260,12 +308,14 @@ class WeReadClient:
             data = resp.json()
             chapters = []
             for entry in data.get("data", []):
-                if entry.get("bookId") == book_id:
-                    for ch in entry.get("updated", []):
-                        cid = ch.get("chapterUid", "")
-                        ci  = int(ch.get("chapterIdx", 1))
-                        if cid:
-                            chapters.append({"c": cid, "ci": ci})
+                if entry.get("soldOut"):
+                    return []  # 已下架，跳过
+                for ch in entry.get("updated", []):
+                    cid = ch.get("chapterUid", "")
+                    ci  = int(ch.get("chapterIdx", 1))
+                    # 只接受十六进制字符串格式的 chapterUid（整数型书籍 read API 无效）
+                    if isinstance(cid, str) and len(cid) > 8:
+                        chapters.append({"c": cid, "ci": ci})
             return chapters
         except Exception as e:
             log.warning("获取书籍 %s 章节失败: %s", book_id, e)
@@ -366,23 +416,34 @@ def push_notify(cfg: Config, msg: str):
 def _pick(books: list[dict], prev_bi: int, prev_ci: int, continuity: float):
     """
     按连续性概率选书/章节：
-    - continuity 概率：继续读当前书的下一章
+    - continuity 概率：继续读当前书的下一章（顺序推进）
     - 1-continuity 概率：随机跳到其他书的随机章节
+    - 强制避免连续两次选同一 (book, chapter)，防触发服务端反重复检测
     """
-    if books and random.random() < continuity and 0 <= prev_bi < len(books):
-        bi = prev_bi
-        chapters = books[bi]["chapters"]
-        if chapters:
-            # 偏向顺序阅读，但偶尔跳章节
-            if random.random() < continuity and prev_ci + 1 < len(chapters):
-                ci = prev_ci + 1
+    for _ in range(10):   # 最多尝试 10 次，确保不重复
+        if books and random.random() < continuity and 0 <= prev_bi < len(books):
+            bi = prev_bi
+            chapters = books[bi]["chapters"]
+            if chapters:
+                if random.random() < continuity and prev_ci + 1 < len(chapters):
+                    ci = prev_ci + 1
+                else:
+                    ci = random.randrange(len(chapters))
             else:
-                ci = random.randrange(len(chapters))
+                bi = random.randrange(len(books))
+                ci = 0
+        else:
+            bi = random.randrange(len(books))
+            chapters = books[bi]["chapters"]
+            ci = random.randrange(len(chapters)) if chapters else 0
+
+        # 避免与上一次完全相同
+        if (bi, ci) != (prev_bi, prev_ci):
             return bi, ci
 
-    bi = random.randrange(len(books))
-    chapters = books[bi]["chapters"]
-    ci = random.randrange(len(chapters)) if chapters else 0
+    # 兜底：直接取下一个位置
+    bi = prev_bi
+    ci = (prev_ci + 1) % len(books[bi]["chapters"])
     return bi, ci
 
 
@@ -423,23 +484,23 @@ def main():
     # 1. 先刷新一次 Cookie，保证有效性
     client.refresh_cookie()
 
-    # 2. 从书架获取真实书籍
-    books = client.fetch_shelf()
-
-    # 3. 限制数量并拉取每本书的章节
-    books = books[: cfg.max_shelf_books]
-    for book in books:
+    # 2. 从书架获取真实书籍（过滤掉整数型章节 UID 的书，那些不被 read API 接受）
+    shelf_books = client.fetch_shelf()
+    shelf_books = shelf_books[: cfg.max_shelf_books]
+    for book in shelf_books:
         chapters = client.fetch_chapters(book["book_id"])
         if chapters:
             book["chapters"] = chapters[: cfg.max_chapters]
             log.info("  《%s》 载入 %d 章", book["title"], len(book["chapters"]))
 
-    # 过滤没有章节的书
-    books = [b for b in books if b["chapters"]]
+    shelf_books = [b for b in shelf_books if b["chapters"]]
+    if shelf_books:
+        log.info("书架可用书籍 %d 本（含十六进制章节 ID）", len(shelf_books))
+    else:
+        log.info("书架无可用书籍（均为商业书/整数型章节），仅使用兜底书籍")
 
-    if not books:
-        log.warning("书架为空或章节拉取失败，使用内置兜底书籍")
-        books = FALLBACK_BOOKS
+    # 3. 始终将兜底书籍加入书池（保证至少有已验证可用的选项）
+    books = shelf_books + FALLBACK_BOOKS
 
     log.info("共使用 %d 本书进行模拟阅读", len(books))
 
