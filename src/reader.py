@@ -3,6 +3,8 @@
 负责 Cookie 验证、书籍选取、单次上报执行
 """
 
+from __future__ import annotations
+
 import random
 from dataclasses import dataclass, field
 from datetime import date

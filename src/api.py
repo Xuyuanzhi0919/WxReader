@@ -3,6 +3,8 @@
 所有 HTTP 请求集中在此模块
 """
 
+from __future__ import annotations
+
 import requests
 from dataclasses import dataclass
 from loguru import logger
