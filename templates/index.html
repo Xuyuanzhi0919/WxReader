@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f1a">
+<title>微信读书 · 自动阅读</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ─── reset & tokens ─── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg-from: #080c18;
+  --bg-to:   #0e1628;
+  --glass:        rgba(255,255,255,0.06);
+  --glass-hover:  rgba(255,255,255,0.09);
+  --glass-border: rgba(255,255,255,0.12);
+  --glass-border-strong: rgba(255,255,255,0.22);
+  --glass-input:  rgba(0,0,0,0.28);
+  --blue:    #3b82f6;
+  --cyan:    #06b6d4;
+  --accent:  linear-gradient(135deg, #3b82f6, #06b6d4);
+  --accent-glow: rgba(59,130,246,0.35);
+  --green:   #10b981;
+  --red:     #ef4444;
+  --amber:   #f59e0b;
+  --t1: #f1f5f9;
+  --t2: #94a3b8;
+  --t3: #475569;
+  --r:  18px;
+  --r-sm: 10px;
+  --transition: .2s ease;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  font-family: 'Outfit', -apple-system, 'PingFang SC', sans-serif;
+  color: var(--t1);
+  background: linear-gradient(160deg, var(--bg-from) 0%, var(--bg-to) 100%);
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+/* ─── aurora orbs ─── */
+.bg-scene {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+}
+.orb {
+  position: absolute; border-radius: 50%; filter: blur(90px); opacity: .45;
+  will-change: transform;
+}
+.o1 {
+  width: min(600px, 80vw); height: min(600px, 80vw);
+  background: radial-gradient(circle, rgba(59,130,246,.5), transparent 70%);
+  top: -15%; left: -10%;
+  animation: drift1 24s ease-in-out infinite;
+}
+.o2 {
+  width: min(500px, 70vw); height: min(500px, 70vw);
+  background: radial-gradient(circle, rgba(99,102,241,.45), transparent 70%);
+  bottom: -10%; right: -8%;
+  animation: drift2 30s ease-in-out infinite;
+}
+.o3 {
+  width: min(380px, 55vw); height: min(380px, 55vw);
+  background: radial-gradient(circle, rgba(6,182,212,.3), transparent 70%);
+  top: 45%; left: 55%;
+  animation: drift3 20s ease-in-out infinite;
+}
+@keyframes drift1 {
+  0%,100% { transform: translate(0,0) scale(1); }
+  40%     { transform: translate(5%,-7%) scale(1.08); }
+  70%     { transform: translate(-4%,5%) scale(.94); }
+}
+@keyframes drift2 {
+  0%,100% { transform: translate(0,0) scale(1); }
+  35%     { transform: translate(-6%,5%) scale(1.1); }
+  70%     { transform: translate(4%,-4%) scale(.95); }
+}
+@keyframes drift3 {
+  0%,100% { transform: translate(-50%,-50%) scale(1); }
+  50%     { transform: translate(-48%,-53%) scale(1.12); }
+}
+
+/* ─── layout ─── */
+.page {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 0 16px 40px;
+  padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ─── topbar ─── */
+.topbar {
+  width: 100%; max-width: 660px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 0 12px;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+}
+.logo {
+  display: flex; align-items: center; gap: 9px;
+}
+.logo-icon {
+  width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
+  background: linear-gradient(135deg, #3b82f6, #06b6d4);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px;
+  box-shadow: 0 0 18px rgba(59,130,246,.45);
+}
+.logo-name {
+  font-size: 17px; font-weight: 700; color: var(--t1); letter-spacing: -.2px;
+}
+.topbar-gap { flex: 1; }
+.state-pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 13px; border-radius: 99px;
+  background: var(--glass); border: 1px solid var(--glass-border);
+  font-size: 12px; font-weight: 500; color: var(--t2);
+  transition: all var(--transition); white-space: nowrap;
+}
+.state-pill.running { background: rgba(59,130,246,.12); border-color: rgba(59,130,246,.3); color: #93c5fd; }
+.state-pill.done    { background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.3); color: #6ee7b7; }
+.state-pill.error   { background: rgba(239,68,68,.12);  border-color: rgba(239,68,68,.3);  color: #fca5a5; }
+.dot {
+  width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  flex-shrink: 0;
+}
+.state-pill.running .dot { animation: blink 1.4s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+/* ─── hero ─── */
+.hero {
+  width: 100%; max-width: 660px;
+  padding: 12px 0 20px;
+}
+.hero h1 {
+  font-size: clamp(22px, 5vw, 28px);
+  font-weight: 700; letter-spacing: -.5px; color: var(--t1);
+  line-height: 1.2; margin-bottom: 6px;
+}
+.hero p { font-size: 14px; color: var(--t2); line-height: 1.6; }
+
+/* ─── glass card ─── */
+.card {
+  width: 100%; max-width: 660px;
+  background: var(--glass);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r);
+  padding: 20px;
+  margin-bottom: 14px;
+  transition: border-color var(--transition);
+}
+.card:hover { border-color: var(--glass-border-strong); }
+
+/* step header */
+.step-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.step-num {
+  min-width: 26px; height: 26px; border-radius: 8px;
+  background: rgba(59,130,246,.15); border: 1px solid rgba(59,130,246,.3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: #93c5fd;
+  flex-shrink: 0;
+}
+.step-title { font-size: 15px; font-weight: 600; color: var(--t1); }
+.step-sub   { font-size: 12px; color: var(--t3); margin-top: 2px; }
+
+/* format badges */
+.fmt-row  { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.fmt-tag  {
+  padding: 3px 10px; border-radius: 99px;
+  font-size: 11px; font-weight: 500;
+  background: rgba(255,255,255,.05); border: 1px solid var(--glass-border);
+  color: var(--t3); transition: all var(--transition);
+}
+.fmt-tag.on {
+  background: rgba(59,130,246,.12); border-color: rgba(59,130,246,.3);
+  color: #93c5fd;
+}
+
+/* textarea */
+.cookie-area {
+  width: 100%; height: 118px;
+  padding: 12px 14px;
+  background: var(--glass-input); border: 1px solid var(--glass-border);
+  border-radius: var(--r-sm);
+  font-size: 12.5px; font-family: 'Fira Code', monospace;
+  color: var(--t1); line-height: 1.7; resize: vertical; outline: none;
+  transition: border-color var(--transition);
+  -webkit-appearance: none;
+}
+.cookie-area:focus         { border-color: rgba(59,130,246,.5); }
+.cookie-area::placeholder  { color: var(--t3); }
+.cookie-area:disabled      { opacity: .4; cursor: not-allowed; }
+
+/* remember */
+.remember {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 10px; cursor: pointer;
+  font-size: 12px; color: var(--t3);
+  -webkit-tap-highlight-color: transparent;
+}
+.remember:hover { color: var(--t2); }
+.remember input { accent-color: var(--blue); width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; }
+
+/* settings row */
+.settings { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field-label { font-size: 12px; font-weight: 600; color: var(--t2); margin-bottom: 7px; }
+.field-box {
+  display: flex; align-items: center; height: 44px;
+  padding: 0 14px; gap: 8px;
+  background: var(--glass-input); border: 1px solid var(--glass-border);
+  border-radius: var(--r-sm);
+}
+.field-box input {
+  flex: 1; min-width: 0; background: none; border: none; outline: none;
+  font-size: 15px; font-weight: 500; color: var(--t1); font-family: inherit;
+  -webkit-appearance: none;
+}
+.field-box input:disabled { cursor: not-allowed; }
+.field-unit { font-size: 11px; color: var(--t3); white-space: nowrap; flex-shrink: 0; }
+
+/* error */
+.err {
+  display: none; margin-top: 10px;
+  padding: 9px 13px; border-radius: var(--r-sm);
+  background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.2);
+  font-size: 12px; color: #fca5a5; line-height: 1.5;
+}
+.err.on { display: block; }
+
+/* run button */
+.run-btn {
+  position: relative; overflow: hidden;
+  width: 100%; height: 52px; border: none; border-radius: var(--r-sm);
+  font-family: 'Outfit', sans-serif; font-size: 16px; font-weight: 600;
+  color: #fff; cursor: pointer;
+  background: linear-gradient(135deg, #3b82f6, #06b6d4);
+  box-shadow: 0 0 28px rgba(59,130,246,.28);
+  transition: all var(--transition);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.run-btn::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.18), transparent);
+  transform: translateX(-100%);
+  transition: transform .55s ease;
+}
+.run-btn:hover::after { transform: translateX(100%); }
+.run-btn:hover:not(:disabled) { box-shadow: 0 0 40px rgba(59,130,246,.42); transform: translateY(-1px); }
+.run-btn:active:not(:disabled){ transform: translateY(0); }
+.run-btn.stop-mode {
+  background: linear-gradient(135deg, #b45309, #f59e0b);
+  box-shadow: 0 0 28px rgba(245,158,11,.25);
+}
+.run-btn.stop-mode:hover:not(:disabled) { box-shadow: 0 0 40px rgba(245,158,11,.4); }
+.run-btn:disabled { opacity: .45; cursor: not-allowed; transform: none !important; }
+
+/* ─── status card ─── */
+.progress-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.progress-label { font-size: 13px; color: var(--t2); }
+.progress-vals  { font-size: 13px; font-weight: 600; color: var(--t1); }
+.progress-track {
+  width: 100%; height: 6px; background: rgba(255,255,255,.08);
+  border-radius: 3px; overflow: hidden; margin-bottom: 14px;
+}
+.progress-fill {
+  height: 100%; border-radius: 3px;
+  background: linear-gradient(90deg, #3b82f6, #06b6d4);
+  box-shadow: 0 0 10px rgba(59,130,246,.5);
+  transition: width .6s ease;
+  min-width: 0;
+}
+.status-msg {
+  font-size: 13px; color: var(--t2); line-height: 1.6;
+  padding: 10px 13px; background: rgba(0,0,0,.2); border-radius: var(--r-sm);
+  font-style: italic;
+}
+.status-msg.ok  { color: #6ee7b7; font-style: normal; }
+.status-msg.err { color: #fca5a5; font-style: normal; }
+
+/* ─── log terminal ─── */
+.term-bar {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 10px;
+}
+.t-dots { display: flex; gap: 5px; }
+.t-dot  { width: 10px; height: 10px; border-radius: 50%; }
+.td-r   { background: #ff5f57; }
+.td-y   { background: #febc2e; }
+.td-g   { background: #28c840; }
+.term-title {
+  flex: 1; text-align: center;
+  font-size: 11px; color: var(--t3); font-family: 'Fira Code', monospace;
+  letter-spacing: .3px;
+}
+.term-clr {
+  font-size: 11px; color: var(--t3); background: none; border: none;
+  cursor: pointer; font-family: 'Fira Code', monospace; padding: 2px 7px;
+  border-radius: 5px; transition: all var(--transition); flex-shrink: 0;
+}
+.term-clr:hover { background: rgba(255,255,255,.07); color: var(--t2); }
+.log-box {
+  background: rgba(0,0,0,.32); border-radius: var(--r-sm);
+  padding: 12px 14px; height: 190px; overflow-y: auto;
+  font-size: 11.5px; font-family: 'Fira Code', monospace;
+  line-height: 1.85; color: var(--t3);
+}
+.log-box::-webkit-scrollbar { width: 3px; }
+.log-box::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 2px; }
+.ll   { display: block; animation: lin .18s ease; }
+.l-ok { color: #5eead4; }
+.l-go { color: #86efac; }
+.l-er { color: #fca5a5; }
+.l-in { color: #94a3b8; }
+.l-wn { color: #fcd34d; }
+@keyframes lin { from{opacity:0;transform:translateX(-4px)} to{opacity:1;transform:none} }
+
+/* ─── history ─── */
+.hist-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 600; color: var(--t3);
+  text-transform: uppercase; letter-spacing: .5px;
+  margin-bottom: 12px;
+}
+.hist-list { display: flex; flex-direction: column; gap: 7px; }
+.hist-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: var(--r-sm);
+  background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.06);
+  font-size: 12px; transition: border-color var(--transition);
+}
+.hist-row:hover { border-color: var(--glass-border); }
+.hist-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.hs-done    .hist-dot { background: var(--green); }
+.hs-stopped .hist-dot { background: var(--t3); }
+.hs-error   .hist-dot { background: var(--red); }
+.hs-running .hist-dot { background: var(--blue); animation: blink 1.4s ease-in-out infinite; }
+.hist-time    { font-family: 'Fira Code', monospace; color: var(--t3); width: 72px; flex-shrink: 0; }
+.hist-target  { color: var(--t2); }
+.hist-gap     { flex: 1; }
+.hist-mins    { font-family: 'Fira Code', monospace; color: var(--t2); margin-right: 4px; }
+.hist-badge   {
+  padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;
+}
+.hs-done    .hist-badge { background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.2); color: #6ee7b7; }
+.hs-stopped .hist-badge { background: var(--glass); border: 1px solid var(--glass-border); color: var(--t3); }
+.hs-error   .hist-badge { background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.2); color: #fca5a5; }
+.hs-running .hist-badge { background: rgba(59,130,246,.12); border: 1px solid rgba(59,130,246,.2); color: #93c5fd; }
+
+/* ─── help modal ─── */
+.mask {
+  display: none; position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,.6); backdrop-filter: blur(6px);
+  align-items: center; justify-content: center;
+  padding: 20px;
+}
+.mask.on { display: flex; }
+.modal {
+  background: linear-gradient(160deg, rgba(15,25,50,.97), rgba(8,12,24,.98));
+  border: 1px solid var(--glass-border-strong);
+  border-radius: 22px; padding: 28px;
+  max-width: 480px; width: 100%;
+  box-shadow: 0 32px 80px rgba(0,0,0,.55);
+}
+.modal h3  { font-size: 18px; font-weight: 700; margin-bottom: 16px; }
+.modal ol  { padding-left: 18px; color: var(--t2); font-size: 13.5px; line-height: 2.1; }
+.modal ol b { color: #93c5fd; }
+.modal p   { font-size: 12.5px; color: var(--t3); margin-top: 12px; line-height: 1.7; }
+.modal-btn {
+  margin-top: 22px; width: 100%; height: 46px; border: none; border-radius: var(--r-sm);
+  background: linear-gradient(135deg, #3b82f6, #06b6d4);
+  font-family: 'Outfit', sans-serif; font-size: 14px; font-weight: 600; color: #fff;
+  cursor: pointer; transition: all var(--transition);
+  box-shadow: 0 0 18px rgba(59,130,246,.25);
+}
+.modal-btn:hover { box-shadow: 0 0 30px rgba(59,130,246,.4); }
+
+/* ─── help link ─── */
+.help-link {
+  background: none; border: none; cursor: pointer; padding: 5px 2px;
+  font-family: 'Outfit', sans-serif; font-size: 12px; color: var(--t3);
+  display: flex; align-items: center; gap: 5px;
+  transition: color var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+.help-link:hover { color: var(--t2); }
+
+/* ─── footer ─── */
+.footer {
+  width: 100%; max-width: 660px; text-align: center;
+  font-size: 11px; color: var(--t3); margin-top: 6px;
+}
+
+/* ─── responsive adjustments ─── */
+@media (min-width: 520px) {
+  .page { padding: 0 24px 48px; }
+  .card { padding: 24px; }
+  .log-box { height: 220px; }
+  .cookie-area { height: 130px; }
+}
+@media (min-width: 768px) {
+  .page { padding: 0 32px 56px; }
+  .card { padding: 26px 28px; margin-bottom: 16px; }
+  .hero { padding: 16px 0 24px; }
+  .hero h1 { font-size: 30px; }
+  .log-box { height: 240px; }
+  .run-btn  { height: 54px; font-size: 17px; }
+}
+
+/* ─── load animation ─── */
+.card, .hero { opacity: 0; animation: up .4s ease forwards; }
+.card:nth-child(1) { animation-delay: .05s; }
+.card:nth-child(2) { animation-delay: .10s; }
+.card:nth-child(3) { animation-delay: .15s; }
+.card:nth-child(4) { animation-delay: .20s; }
+.card:nth-child(5) { animation-delay: .25s; }
+.card:nth-child(6) { animation-delay: .30s; }
+.hero             { animation-delay: .02s; }
+@keyframes up { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:none} }
+</style>
+</head>
+<body>
+
+<!-- aurora -->
+<div class="bg-scene" aria-hidden="true">
+  <div class="orb o1"></div>
+  <div class="orb o2"></div>
+  <div class="orb o3"></div>
+</div>
+
+<div class="page">
+
+  <!-- topbar -->
+  <nav class="topbar">
+    <div class="logo">
+      <div class="logo-icon">📖</div>
+      <span class="logo-name">WxReader</span>
+    </div>
+    <div class="topbar-gap"></div>
+    <div class="state-pill" id="state-pill">
+      <span class="dot"></span>
+      <span id="state-txt">等待启动</span>
+    </div>
+    <button class="help-link" onclick="openHelp()" aria-label="使用帮助">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      帮助
+    </button>
+  </nav>
+
+  <!-- hero -->
+  <div class="hero">
+    <h1>微信读书 · 自动刷时长</h1>
+    <p>粘贴 Cookie 后一键启动，模拟真实阅读自动累计时长</p>
+  </div>
+
+  <!-- step 1: cookie -->
+  <div class="card">
+    <div class="step-head">
+      <div class="step-num">01</div>
+      <div>
+        <div class="step-title">粘贴 Cookie</div>
+        <div class="step-sub">支持三种格式，任选其一</div>
+      </div>
+    </div>
+    <div class="fmt-row">
+      <span class="fmt-tag on" id="tag-plain">纯字符串</span>
+      <span class="fmt-tag"   id="tag-curl">curl 命令</span>
+      <span class="fmt-tag"   id="tag-hdr">请求头格式</span>
+    </div>
+    <textarea
+      id="cookie-ta"
+      class="cookie-area"
+      placeholder="wr_skey=AbCd1234; wr_vid=38442...; &#10;&#10;或粘贴 curl 'https://weread.qq.com/...' -H 'cookie:...' 命令"
+      autocomplete="off" autocorrect="off" spellcheck="false"
+      oninput="detectFmt(this.value)"></textarea>
+    <label class="remember">
+      <input type="checkbox" id="remember-cb">
+      <span>记住 Cookie（加密保存到本地数据库）</span>
+    </label>
+    <div class="err" id="cookie-err"></div>
+  </div>
+
+  <!-- step 2: settings -->
+  <div class="card">
+    <div class="step-head">
+      <div class="step-num">02</div>
+      <div>
+        <div class="step-title">阅读参数</div>
+        <div class="step-sub">默认值适合大多数场景</div>
+      </div>
+    </div>
+    <div class="settings">
+      <div>
+        <div class="field-label">目标时长</div>
+        <div class="field-box">
+          <input type="number" id="minutes" value="60" min="1" max="360" inputmode="numeric">
+          <span class="field-unit">分钟</span>
+        </div>
+      </div>
+      <div>
+        <div class="field-label">请求间隔</div>
+        <div class="field-box">
+          <input type="text" id="interval" value="28-35" inputmode="decimal">
+          <span class="field-unit">秒</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- step 3: run -->
+  <div class="card">
+    <div class="step-head">
+      <div class="step-num">03</div>
+      <div>
+        <div class="step-title">启动</div>
+        <div class="step-sub" id="btn-sub">配置完成后点击开始</div>
+      </div>
+    </div>
+    <button class="run-btn" id="run-btn" onclick="toggleRun()">▶&ensp;开始阅读</button>
+  </div>
+
+  <!-- status -->
+  <div class="card">
+    <div class="step-head" style="margin-bottom:12px">
+      <div class="step-num" style="background:rgba(6,182,212,.12);border-color:rgba(6,182,212,.25);color:#67e8f9">状</div>
+      <div>
+        <div class="step-title">运行状态</div>
+      </div>
+    </div>
+    <div class="progress-header">
+      <span class="progress-label">阅读进度</span>
+      <span class="progress-vals" id="prog-val">— / — 分钟</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="prog-fill" style="width:0%"></div>
+    </div>
+    <div class="status-msg" id="status-msg">等待启动，请先粘贴 Cookie…</div>
+
+    <!-- terminal -->
+    <div style="margin-top:14px">
+      <div class="term-bar">
+        <div class="t-dots">
+          <span class="t-dot td-r"></span>
+          <span class="t-dot td-y"></span>
+          <span class="t-dot td-g"></span>
+        </div>
+        <span class="term-title">wxreader — log</span>
+        <button class="term-clr" onclick="clearLog()">clear</button>
+      </div>
+      <div class="log-box" id="log-box">
+        <span class="ll l-in">$ wxreader --ready</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- history -->
+  <div class="card">
+    <div class="hist-head">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      历史记录
+    </div>
+    <div class="hist-list" id="hist-list">
+      <span style="font-size:12px;color:var(--t3)">暂无记录</span>
+    </div>
+  </div>
+
+  <div class="footer">开源项目 · 仅供学习交流使用</div>
+</div>
+
+<!-- help modal -->
+<div class="mask" id="mask" onclick="bgClose(event)">
+  <div class="modal">
+    <h3>📖 如何获取 Cookie？</h3>
+    <ol>
+      <li>Chrome 打开 <b>weread.qq.com</b> 并登录</li>
+      <li>按 <b>F12</b>（Mac：⌘⌥I）打开开发者工具</li>
+      <li>点击 <b>Network（网络）</b> 标签</li>
+      <li>刷新页面，随便点一个请求</li>
+      <li>右键 → <b>Copy → Copy as cURL</b></li>
+      <li>粘贴到上方输入框即可</li>
+    </ol>
+    <p>💡 也可直接复制 Headers 里 <b>cookie</b> 的值（纯字符串）。</p>
+    <p>⚠️ Cookie 有效期约数天，过期后需重新获取；勾选「记住」可刷新后自动填充。</p>
+    <button class="modal-btn" onclick="closeHelp()">我知道了</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ── state ──────────────────────────────────────────────────────────────────────
+let running   = false;
+let logOffset = 0;
+let pollTimer = null;
+const FORM_IDS = ['cookie-ta', 'minutes', 'interval'];
+
+// ── boot ───────────────────────────────────────────────────────────────────────
+(async () => {
+  try {
+    const cfg = await get('/api/config');
+    if (cfg.target_minutes) $('minutes').value  = cfg.target_minutes;
+    if (cfg.interval)       $('interval').value = cfg.interval;
+    if (cfg.remember) {
+      $('remember-cb').checked = true;
+      if (cfg.cookie) { $('cookie-ta').value = cfg.cookie; detectFmt(cfg.cookie); }
+    }
+  } catch(e) {}
+
+  try {
+    const r = await get('/api/restore');
+    if (r.has_session) {
+      logOffset = r.offset || 0;
+      clearLog();
+      (r.logs || []).forEach(appendLog);
+      setProgress(r.progress_done || 0, r.progress_total || 0);
+      applyStatus(r.status, r.progress_done, r.progress_total);
+      if (r.running) { setRunning(true); startPoll(); }
+    }
+  } catch(e) {}
+
+  loadHistory();
+})();
+
+// ── utils ──────────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+async function get(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(r.statusText);
+  return r.json();
+}
+
+async function post(url, body) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+// ── format detection ───────────────────────────────────────────────────────────
+function detectFmt(v) {
+  v = v.trim();
+  const isCurl = v.startsWith('curl ');
+  const isHdr  = !isCurl && v.includes('\n') && v.includes(': ');
+  $('tag-curl').classList.toggle('on',  isCurl);
+  $('tag-hdr').classList.toggle('on',   isHdr);
+  $('tag-plain').classList.toggle('on', !isCurl && !isHdr);
+}
+
+// ── progress ───────────────────────────────────────────────────────────────────
+function setProgress(done, total) {
+  const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0;
+  $('prog-fill').style.width = pct + '%';
+  $('prog-val').textContent = total > 0
+    ? `${(done * 0.5).toFixed(1)} / ${(total * 0.5).toFixed(0)} 分钟`
+    : '— / — 分钟';
+}
+
+// ── status ─────────────────────────────────────────────────────────────────────
+function applyStatus(status, done, total) {
+  const pill = $('state-pill');
+  const txt  = $('state-txt');
+  const msg  = $('status-msg');
+  pill.className = 'state-pill ' + (status === 'running' ? 'running' : status === 'done' ? 'done' : status === 'error' ? 'error' : '');
+
+  const labels = { running: '运行中', done: '已完成', stopped: '已停止', error: '异常' };
+  txt.textContent = labels[status] || '等待启动';
+
+  const donMin = (done  * 0.5).toFixed(1);
+  const totMin = (total * 0.5).toFixed(0);
+  if (status === 'running') {
+    msg.textContent  = `正在自动阅读… 已累计 ${donMin} 分钟`;
+    msg.className    = 'status-msg';
+  } else if (status === 'done') {
+    msg.textContent  = `✅ 任务完成！共累计 ${donMin} 分钟`;
+    msg.className    = 'status-msg ok';
+  } else if (status === 'stopped') {
+    msg.textContent  = `⏹ 已停止，累计 ${donMin} 分钟`;
+    msg.className    = 'status-msg';
+  } else if (status === 'error') {
+    msg.textContent  = '❌ 运行异常，请查看日志';
+    msg.className    = 'status-msg err';
+  } else {
+    msg.textContent  = '等待启动，请先粘贴 Cookie…';
+    msg.className    = 'status-msg';
+  }
+}
+
+// ── log ────────────────────────────────────────────────────────────────────────
+function appendLog(line) {
+  const box  = $('log-box');
+  const span = document.createElement('span');
+  span.className = 'll ' + lineClass(line);
+  span.textContent = line;
+  box.appendChild(span);
+  box.appendChild(document.createElement('br'));
+  box.scrollTop = box.scrollHeight;
+}
+
+function lineClass(l) {
+  if (l.includes('🎉'))  return 'l-go';
+  if (l.includes('✅'))  return 'l-ok';
+  if (l.includes('❌') || l.includes('⚠️')) return 'l-er';
+  if (l.includes('⏹'))  return 'l-wn';
+  return 'l-in';
+}
+
+function clearLog() {
+  $('log-box').innerHTML = '<span class="ll l-in">$ cleared</span>';
+}
+
+// ── history ────────────────────────────────────────────────────────────────────
+async function loadHistory() {
+  try {
+    const items = await get('/api/history');
+    const list  = $('hist-list');
+    if (!items.length) return;
+    const lbl = { done: '完成', stopped: '停止', error: '异常', running: '运行中' };
+    list.innerHTML = items.map(s => `
+      <div class="hist-row hs-${s.status}">
+        <div class="hist-dot"></div>
+        <span class="hist-time">${s.created_str}</span>
+        <span class="hist-target">目标 ${s.target_minutes}min</span>
+        <div class="hist-gap"></div>
+        <span class="hist-mins">${s.duration_min.toFixed(1)}min</span>
+        <span class="hist-badge">${lbl[s.status] || s.status}</span>
+      </div>`).join('');
+  } catch(e) {}
+}
+
+// ── run / stop ─────────────────────────────────────────────────────────────────
+function toggleRun() {
+  running ? doStop() : doStart();
+}
+
+async function doStart() {
+  const cookie   = $('cookie-ta').value.trim();
+  const minutes  = parseInt($('minutes').value)  || 60;
+  const interval = $('interval').value.trim()    || '28-35';
+  const remember = $('remember-cb').checked;
+  const errEl    = $('cookie-err');
+  errEl.classList.remove('on');
+
+  if (!cookie) {
+    errEl.textContent = '请先粘贴 Cookie';
+    errEl.classList.add('on');
+    return;
+  }
+
+  setBtnState('loading');
+  try {
+    const res = await post('/api/start', { cookie, target_minutes: minutes, interval, remember });
+    if (res.error) {
+      errEl.textContent = res.error;
+      errEl.classList.add('on');
+      setBtnState('idle');
+      return;
+    }
+    setRunning(true);
+    logOffset = 0;
+    clearLog();
+    applyStatus('running', 0, 0);
+    setProgress(0, 0);
+    startPoll();
+  } catch(e) {
+    errEl.textContent = '启动失败：' + e.message;
+    errEl.classList.add('on');
+    setBtnState('idle');
+  }
+}
+
+async function doStop() {
+  setBtnState('stopping');
+  try { await post('/api/stop', {}); } catch(e) {}
+}
+
+function setRunning(on) {
+  running = on;
+  setBtnState(on ? 'running' : 'idle');
+  FORM_IDS.forEach(id => { $(id).disabled = on; });
+  $('btn-sub').textContent = on ? '正在运行，点击停止' : '配置完成后点击开始';
+}
+
+function setBtnState(state) {
+  const btn = $('run-btn');
+  btn.disabled  = state === 'loading' || state === 'stopping';
+  btn.className = 'run-btn' + (state === 'running' || state === 'stopping' ? ' stop-mode' : '');
+  const labels = {
+    idle:     '▶\u2002开始阅读',
+    loading:  '正在启动…',
+    running:  '⏹\u2002停止运行',
+    stopping: '正在停止…',
+  };
+  btn.innerHTML = labels[state] || labels.idle;
+}
+
+// ── poll ───────────────────────────────────────────────────────────────────────
+function startPoll() {
+  if (pollTimer) clearInterval(pollTimer);
+  poll();
+  pollTimer = setInterval(poll, 1000);
+}
+
+async function poll() {
+  try {
+    const d = await get(`/api/poll?offset=${logOffset}`);
+    (d.lines || []).forEach(appendLog);
+    logOffset = d.offset ?? logOffset;
+    setProgress(d.progress_done || 0, d.progress_total || 0);
+
+    if (d.done) {
+      setRunning(false);
+      applyStatus('done', d.progress_done, d.progress_total);
+      clearInterval(pollTimer); pollTimer = null;
+      loadHistory();
+    } else if (!d.running && running) {
+      setRunning(false);
+      applyStatus('stopped', d.progress_done, d.progress_total);
+      loadHistory();
+    } else if (d.running) {
+      applyStatus('running', d.progress_done, d.progress_total);
+    }
+  } catch(e) {}
+}
+
+// ── modal ──────────────────────────────────────────────────────────────────────
+function openHelp()  { $('mask').classList.add('on'); }
+function closeHelp() { $('mask').classList.remove('on'); }
+function bgClose(e)  { if (e.target === $('mask')) closeHelp(); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHelp(); });
+</script>
+</body>
+</html>
