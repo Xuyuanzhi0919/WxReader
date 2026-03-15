@@ -5,18 +5,51 @@ on:
   schedule:
     - cron: "0 2 * * *"
     - cron: "0 13 * * *"
-  # 也支持手动触发
+  # 支持手动触发（可指定分钟数 / 单个用户名）
   workflow_dispatch:
     inputs:
       target_minutes:
-        description: "目标阅读分钟数（覆盖默认值）"
+        description: "目标阅读分钟数（覆盖默认值，留空使用 TARGET_MINUTES 变量）"
         required: false
         default: ""
+      user:
+        description: "指定运行哪个用户（留空 = 所有用户）"
+        required: false
+        default: ""
+
+# ── 多用户矩阵配置 ─────────────────────────────────────────────────────────────
+# 使用方法：
+#   1. 在仓库 Settings → Secrets → Actions 中为每位用户添加独立 Secret：
+#        WXREAD_COOKIE_user1   （纯 cookie 字符串，最简单）
+#        WXREAD_COOKIE_user2
+#        WXREAD_COOKIE_user3   （可无限扩展）
+#   2. 在下方 matrix.include 中添加对应用户条目
+#   3. 每位用户的 cookie 互相不可见，完全隔离
+#
+#   单用户兼容：仍支持 WXREAD_CURL_BASH（旧格式），matrix 里保留 user0 条目即可
 
 jobs:
   read:
     runs-on: ubuntu-latest
-    timeout-minutes: 180   # 最长等 3 小时（120 分钟阅读 + 余量）
+    timeout-minutes: 180
+
+    strategy:
+      fail-fast: false      # 一个用户失败不影响其他用户继续运行
+      matrix:
+        include:
+          # ── 在此添加用户，name 与 Secret 后缀对应 ──────────────────────────
+          - name: "user1"
+            secret_key: "WXREAD_COOKIE_user1"
+          # - name: "user2"
+          #   secret_key: "WXREAD_COOKIE_user2"
+          # - name: "user3"
+          #   secret_key: "WXREAD_COOKIE_user3"
+
+    # 手动触发时，若指定了 user 则只运行对应用户
+    # （利用 if 条件过滤：user 为空 OR user == matrix.name）
+    if: >
+      github.event.inputs.user == '' ||
+      github.event.inputs.user == matrix.name
 
     steps:
       - name: Checkout
@@ -31,28 +64,23 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run auto-read
+      - name: Run auto-read (${{ matrix.name }})
         env:
-          # ── 必填 ─────────────────────────────────────────────────────────
-          # 在 Settings → Secrets → Actions 中添加 WXREAD_CURL_BASH
-          # 值为：微信读书官网抓 /web/book/read 接口后右键 "Copy as cURL (bash)"
-          WXREAD_CURL_BASH: ${{ secrets.WXREAD_CURL_BASH }}
-
-          # ── 可选覆盖 ──────────────────────────────────────────────────────
-          # Settings → Variables → Actions 中添加 TARGET_MINUTES（整数）
-          TARGET_MINUTES: ${{ inputs.target_minutes || vars.TARGET_MINUTES }}
-
-          # ── 推送（可选）──────────────────────────────────────────────────
+          # 每个用户读取自己的 Secret（通过 matrix.secret_key 动态选取）
+          # 兜底：若该用户没有专属 Secret，则回退到通用 WXREAD_CURL_BASH
+          WXREAD_COOKIE:    ${{ secrets[matrix.secret_key] || secrets.WXREAD_CURL_BASH }}
+          TARGET_MINUTES:   ${{ inputs.target_minutes || vars.TARGET_MINUTES }}
+          # 推送 Token 可全局共享，也可为每用户单独配置
           PUSH_METHOD:          ${{ secrets.PUSH_METHOD }}
           PUSHPLUS_TOKEN:       ${{ secrets.PUSHPLUS_TOKEN }}
           TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py
 
-      - name: Upload logs
+      - name: Upload logs (${{ matrix.name }})
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: weread-logs-${{ github.run_id }}
+          name: weread-logs-${{ matrix.name }}-${{ github.run_id }}
           path: logs/
           retention-days: 7

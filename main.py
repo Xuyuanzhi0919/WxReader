@@ -199,34 +199,26 @@ def _parse_curl(curl_str: str) -> tuple[dict, dict, str, str]:
     return headers, cookies, "", ""
 
 
-def load_config() -> Config:
-    cfg = Config()
+def _apply_yaml_global(cfg: Config, raw: dict):
+    """将 YAML 全局配置写入 Config 对象（reading / notify 节）"""
+    r = raw.get("reading", {})
+    cfg.target_minutes  = int(r.get("target_minutes", cfg.target_minutes))
+    interval = str(r.get("interval", "28-35"))
+    lo, _, hi = interval.partition("-")
+    cfg.interval_lo     = float(lo)
+    cfg.interval_hi     = float(hi or lo)
+    cfg.continuity      = float(r.get("continuity", cfg.continuity))
+    cfg.max_shelf_books = int(r.get("max_shelf_books", cfg.max_shelf_books))
 
-    # 1. YAML 配置文件（优先读 config.yaml）
-    for path in ("config.yaml", "config.yml"):
-        if os.path.exists(path):
-            with open(path, encoding="utf-8") as f:
-                raw = yaml.safe_load(f) or {}
-            r = raw.get("reading", {})
-            cfg.target_minutes = int(r.get("target_minutes", cfg.target_minutes))
-            interval = str(r.get("interval", "28-35"))
-            lo, _, hi = interval.partition("-")
-            cfg.interval_lo = float(lo)
-            cfg.interval_hi = float(hi or lo)
-            cfg.continuity = float(r.get("continuity", cfg.continuity))
-            cfg.max_shelf_books = int(r.get("max_shelf_books", cfg.max_shelf_books))
+    n = raw.get("notify", {})
+    cfg.push_method        = n.get("method", "")
+    cfg.pushplus_token     = n.get("pushplus_token", "")
+    cfg.telegram_bot_token = n.get("telegram_bot_token", "")
+    cfg.telegram_chat_id   = n.get("telegram_chat_id", "")
 
-            n = raw.get("notify", {})
-            cfg.push_method       = n.get("method", "")
-            cfg.pushplus_token    = n.get("pushplus_token", "")
-            cfg.telegram_bot_token = n.get("telegram_bot_token", "")
-            cfg.telegram_chat_id  = n.get("telegram_chat_id", "")
-            break
 
-    # 2. 环境变量（覆盖 YAML）
-    # 支持三种格式（任填其一即可）：
-    #   WXREAD_CURL_BASH — curl bash 命令 / Chrome 原始请求头 / 纯 cookie 字符串
-    #   WXREAD_COOKIE    — 纯 cookie 字符串（更简便的备用变量名）
+def _apply_env(cfg: Config):
+    """将环境变量覆盖写入 Config 对象"""
     curl_str = os.getenv("WXREAD_CURL_BASH", "") or os.getenv("WXREAD_COOKIE", "")
     if curl_str:
         cfg.headers, cfg.cookies, ps, pc = _parse_curl(curl_str)
@@ -234,7 +226,6 @@ def load_config() -> Config:
             cfg.ps = ps
         if pc:
             cfg.pc = pc
-
     if os.getenv("TARGET_MINUTES"):
         cfg.target_minutes = int(os.environ["TARGET_MINUTES"])
     if os.getenv("PUSH_METHOD"):
@@ -247,7 +238,65 @@ def load_config() -> Config:
         if os.getenv(env):
             setattr(cfg, attr, os.environ[env])
 
-    return cfg
+
+def load_users() -> list[tuple[str, "Config"]]:
+    """
+    加载用户列表，返回 [(name, Config), ...]。
+
+    优先级：
+      1. YAML config.yaml 中的 users 列表（多用户）
+      2. 环境变量 WXREAD_COOKIE / WXREAD_CURL_BASH（单用户）
+
+    YAML 多用户格式示例：
+      users:
+        - name: "Alice"
+          cookie: "wr_skey=xxx; wr_vid=111"
+          target_minutes: 60
+        - name: "Bob"
+          cookie: "wr_skey=yyy; wr_vid=222"
+          target_minutes: 30
+    """
+    raw = {}
+    for path in ("config.yaml", "config.yml"):
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+            break
+
+    users_yaml = raw.get("users", [])
+
+    # ── 多用户模式：YAML users 列表 ──────────────────────────────────────────
+    if users_yaml:
+        result = []
+        for u in users_yaml:
+            name   = u.get("name", "user")
+            cookie = u.get("cookie", "")
+            if not cookie:
+                log.warning("用户 %s 未配置 cookie，跳过", name)
+                continue
+            cfg = Config()
+            _apply_yaml_global(cfg, raw)          # 全局默认值
+            # 用户级覆盖（target_minutes / interval / continuity）
+            if "target_minutes" in u:
+                cfg.target_minutes = int(u["target_minutes"])
+            if "interval" in u:
+                lo2, _, hi2 = str(u["interval"]).partition("-")
+                cfg.interval_lo, cfg.interval_hi = float(lo2), float(hi2 or lo2)
+            _, cookies_u, ps, pc = _parse_curl(cookie)
+            cfg.cookies = cookies_u
+            if ps: cfg.ps = ps
+            if pc: cfg.pc = pc
+            result.append((name, cfg))
+        if result:
+            return result
+        log.warning("YAML users 列表为空或全部无效，回退到环境变量")
+
+    # ── 单用户模式：环境变量 ─────────────────────────────────────────────────
+    cfg = Config()
+    _apply_yaml_global(cfg, raw)
+    _apply_env(cfg)
+    name = os.getenv("WXREAD_USER_NAME", "default")
+    return [(name, cfg)]
 
 
 # ── HTTP 客户端 ────────────────────────────────────────────────────────────────
@@ -493,52 +542,46 @@ def _setup_logging():
     )
 
 
-# ── 主流程 ─────────────────────────────────────────────────────────────────────
-def main():
-    _setup_logging()
-    cfg = load_config()
-
-    if not cfg.cookies:
-        log.error(
-            "未检测到 Cookie！\n"
-            "  本地运行：在 config.yaml 中配置，或\n"
-            "  GitHub Action：设置 WXREAD_CURL_BASH secret"
-        )
-        sys.exit(1)
+# ── 单用户阅读流程 ─────────────────────────────────────────────────────────────
+def run_one_user(name: str, cfg: "Config") -> str:
+    """
+    为单个用户执行完整阅读流程。
+    返回结果摘要字符串（供多用户汇总推送）。
+    """
+    prefix = f"[{name}] " if name and name != "default" else ""
+    log.info("%s── 开始 ──────────────────────────", prefix)
 
     client = WeReadClient(cfg)
 
-    # 1. 先刷新一次 Cookie，保证有效性
+    # 1. 刷新 Cookie
     client.refresh_cookie()
 
-    # 2. 从书架获取真实书籍（过滤掉整数型章节 UID 的书，那些不被 read API 接受）
+    # 2. 拉取书架 & 章节
     shelf_books = client.fetch_shelf()
     shelf_books = shelf_books[: cfg.max_shelf_books]
     for book in shelf_books:
         chapters = client.fetch_chapters(book["book_id"])
         if chapters:
             book["chapters"] = chapters[: cfg.max_chapters]
-            log.info("  《%s》 载入 %d 章", book["title"], len(book["chapters"]))
+            log.info("%s  《%s》 载入 %d 章", prefix, book["title"], len(book["chapters"]))
 
-    shelf_books = [b for b in shelf_books if b["chapters"]]
+    shelf_books = [b for b in shelf_books if b.get("chapters")]
     if shelf_books:
-        log.info("书架可用书籍 %d 本（含十六进制章节 ID）", len(shelf_books))
+        log.info("%s书架可用 %d 本", prefix, len(shelf_books))
     else:
-        log.info("书架无可用书籍（均为商业书/整数型章节），仅使用兜底书籍")
+        log.info("%s书架无可用书籍，仅使用兜底书籍", prefix)
 
-    # 3. 始终将兜底书籍加入书池（保证至少有已验证可用的选项）
+    # 3. 书池 = 书架可用书 + 兜底书籍
     books = shelf_books + FALLBACK_BOOKS
+    log.info("%s共 %d 本书", prefix, len(books))
 
-    log.info("共使用 %d 本书进行模拟阅读", len(books))
+    # 4. 阅读循环
+    total   = max(1, int(cfg.target_minutes * 60 / 30))
+    log.info("%s目标 %d 分钟，共 %d 次请求", prefix, cfg.target_minutes, total)
 
-    # 4. 计算需要请求的次数（每 30s 一次）
-    total = max(1, int(cfg.target_minutes * 60 / 30))
-    log.info("目标 %d 分钟，共 %d 次请求", cfg.target_minutes, total)
-
-    success   = 0
-    prev_bi   = 0
-    prev_ci   = 0
-    last_ts   = int(time.time()) - 35  # 初始偏移，避免第一次 rt 过小
+    success = 0
+    prev_bi = prev_ci = 0
+    last_ts = int(time.time()) - 35
 
     for idx in range(1, total + 1):
         bi, ci = _pick(books, prev_bi, prev_ci, cfg.continuity)
@@ -550,29 +593,51 @@ def main():
         if ok:
             success += 1
             prev_bi, prev_ci = bi, ci
-            elapsed = success * 0.5
-            log.info(
-                "[%d/%d] ✅  《%s》第%d章  累计 %.1f min",
-                idx, total, book["title"], ch["ci"], elapsed,
-            )
+            log.info("%s[%d/%d] ✅  《%s》第%d章  累计 %.1f min",
+                     prefix, idx, total, book["title"], ch["ci"], success * 0.5)
         else:
-            log.warning("[%d/%d] ❌  请求失败，跳过本次", idx, total)
+            log.warning("%s[%d/%d] ❌  请求失败", prefix, idx, total)
 
-        # 最后一次无需等待
         if idx < total:
-            sleep_sec = random.uniform(cfg.interval_lo, cfg.interval_hi)
-            log.debug("等待 %.1fs", sleep_sec)
-            time.sleep(sleep_sec)
+            time.sleep(random.uniform(cfg.interval_lo, cfg.interval_hi))
 
-    # 5. 收尾
+    # 5. 结果
     actual_min = success * 0.5
-    msg = (
-        f"微信读书完成！\n"
-        f"成功次数：{success}/{total}\n"
-        f"约计时长：{actual_min:.1f} 分钟"
-    )
-    log.info("🎉 %s", msg.replace("\n", " | "))
-    push_notify(cfg, msg)
+    summary = f"{prefix}完成 {success}/{total} 次，约 {actual_min:.1f} 分钟"
+    log.info("%s🎉 %s", prefix, summary)
+    return summary
+
+
+# ── 主流程 ─────────────────────────────────────────────────────────────────────
+def main():
+    _setup_logging()
+
+    users = load_users()
+
+    if not users or not any(cfg.cookies for _, cfg in users):
+        log.error(
+            "未检测到 Cookie！\n"
+            "  本地：在 config.yaml 中配置 users 列表，或\n"
+            "  GitHub Action：设置 WXREAD_COOKIE secret"
+        )
+        sys.exit(1)
+
+    all_results = []
+    push_cfg = None  # 取第一个有推送配置的用户做汇总推送
+
+    for name, cfg in users:
+        if not cfg.cookies:
+            log.warning("[%s] 无 cookie，跳过", name)
+            continue
+        result = run_one_user(name, cfg)
+        all_results.append(result)
+        if not push_cfg and cfg.push_method:
+            push_cfg = cfg
+
+    # 汇总推送（多用户时合并为一条消息）
+    if all_results and push_cfg:
+        msg = "微信读书汇总\n" + "\n".join(all_results)
+        push_notify(push_cfg, msg)
 
 
 if __name__ == "__main__":

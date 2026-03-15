@@ -2,33 +2,38 @@
 # 优先级：环境变量 > config.yaml
 # GitHub Action 用户：无需改此文件，直接配置 Secrets/Variables 即可
 
+# ── 全局阅读参数（各用户的默认值，可被用户级配置覆盖）──────────────────────────
 reading:
-  # 每次运行目标阅读时长（分钟）
-  target_minutes: 60
+  target_minutes: 60        # 每次运行目标时长（分钟）
+  interval: "28-35"         # 两次请求随机等待区间（秒），建议不低于 25s
+  continuity: 0.75          # 阅读连续性（0~1），越高越倾向于继续读当前书
+  max_shelf_books: 8        # 书架最多加载多少本书
+  max_chapters: 15          # 每本书最多取多少章节
 
-  # 两次请求之间的随机等待区间（秒）
-  # 范围越大越像真人，建议不低于 25 秒（平台检测阈值）
-  interval: "28-35"
-
-  # 阅读连续性（0.0~1.0）
-  # 越高越倾向于继续读当前书的下一章，模拟专注阅读
-  continuity: 0.75
-
-  # 从书架最多加载多少本书（避免初始化太慢）
-  max_shelf_books: 8
-
-  # 每本书最多取多少章节
-  max_chapters: 15
-
-# 推送通知（可选）
+# ── 推送通知（可选，多用户共享一套推送）────────────────────────────────────────
 notify:
-  # 推送方式：pushplus | telegram | （留空则不推送）
-  method: ""
-
-  # PushPlus（method = pushplus 时填写）
-  # 获取地址：https://www.pushplus.plus/uc.html
+  method: ""                # pushplus | telegram | （留空不推送）
   pushplus_token: ""
-
-  # Telegram（method = telegram 时填写）
   telegram_bot_token: ""
   telegram_chat_id: ""
+
+# ── 多用户配置（本地/服务器场景）────────────────────────────────────────────────
+# 填写后脚本将依次为每位用户运行一次完整阅读流程。
+# cookie 字段支持三种格式（任填其一）：
+#   1. 纯 cookie 字符串：wr_skey=xxx; wr_vid=yyy; ...
+#   2. curl bash 命令：curl 'https://...' -H '...'
+#   3. Chrome 原始请求头（多行 key: value）
+# 注：GitHub Action 场景无需填写此处，改用 workflow Matrix + Secrets（见 .github/workflows/read.yml）
+
+# users:
+#   - name: "Alice"
+#     cookie: "wr_skey=SxwIVqGw; wr_vid=384424909; ..."
+#     target_minutes: 60      # 可选，覆盖全局 target_minutes
+#
+#   - name: "Bob"
+#     cookie: "wr_skey=B3K5voB6; wr_vid=123456789; ..."
+#     target_minutes: 30
+#     interval: "30-40"       # 可选，覆盖全局 interval
+#
+#   - name: "Charlie"
+#     cookie: "wr_skey=Xxx; wr_vid=999; ..."
