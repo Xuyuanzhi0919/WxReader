@@ -1,0 +1,16 @@
+services:
+  wxreader:
+    build: .
+    container_name: wxreader
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - wxreader_data:/data
+    environment:
+      - PORT=8080
+      - WXREAD_DB=/data/wxread.db
+      - WXREAD_LOG=/data/logs
+
+volumes:
+  wxreader_data:
