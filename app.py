@@ -544,8 +544,9 @@ def qrlogin_start():
         with _qr_lock:
             _qr_sessions[uid] = {"sess": sess, "started": time.time()}
 
-        # 二维码内容：uid 本身（WeRead App 扫描后识别为登录请求）
-        qr_img = _make_qr_png_b64(uid)
+        # 二维码内容：微信读书 App 识别的授权确认 URL
+        login_url = f"https://weread.qq.com/web/confirm?uid={uid}"
+        qr_img = _make_qr_png_b64(login_url)
         return jsonify({"uid": uid, "qr_img": qr_img})
 
     except Exception as e:
