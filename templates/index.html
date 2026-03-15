@@ -256,7 +256,8 @@ body{
 .htime{font-family:'Fira Code',monospace;color:var(--t3);flex-shrink:0;font-size:11px}
 .htarget{color:var(--t2)}
 .hgap{flex:1}
-.hmins{font-family:'Fira Code',monospace;color:var(--t2);margin-right:4px;font-size:11.5px}
+.hmins{font-family:'Fira Code',monospace;color:var(--t1);margin-right:4px;font-size:11.5px;display:flex;align-items:center;gap:4px}
+.hmins-label{font-family:'Outfit',sans-serif;font-size:10px;color:var(--t3);font-weight:500}
 .hbadge{padding:2px 7px;border-radius:6px;font-size:10px;font-weight:600}
 .hs-done    .hbadge{background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.2);color:#6ee7b7}
 .hs-stopped .hbadge{background:var(--glass);border:1px solid var(--gb);color:var(--t3)}
@@ -600,7 +601,7 @@ body{
 
 <script>
 'use strict';
-let running=false,logOffset=0,pollTimer=null,pollFailures=0;
+let running=false,logOffset=0,pollTimer=null,pollFailures=0,pollCount=0;
 let sessionId=null;
 const FORM_IDS=['cookie-ta','minutes','interval'];
 const LS_SID     ='wxreader_sid';
@@ -734,15 +735,18 @@ async function loadHistory(){
     const list=$('hist-list');
     if(!items.length){list.innerHTML='<span style="font-size:12px;color:var(--t3)">暂无记录</span>';return;}
     const lbl={done:'完成',stopped:'停止',error:'异常',running:'运行中'};
-    list.innerHTML=items.map(s=>`
+    list.innerHTML=items.map(s=>{
+      const dur=s.duration_min>0?`${s.duration_min.toFixed(1)}min`:'—';
+      return`
       <div class="hrow hs-${s.status}">
         <div class="hdot"></div>
         <span class="htime">${s.created_str}</span>
         <span class="htarget">目标 ${s.target_minutes}min</span>
         <div class="hgap"></div>
-        <span class="hmins">${s.duration_min.toFixed(1)}min</span>
+        <span class="hmins"><span class="hmins-label">已读</span>${dur}</span>
         <span class="hbadge">${lbl[s.status]||s.status}</span>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }catch(e){}
 }
 
@@ -812,7 +816,11 @@ async function poll(){
       setBadge(false);clearInterval(pollTimer);pollTimer=null;loadHistory();
     }else if(!d.running&&running){
       setRunning(false);applyStatus('stopped',d.progress_done,d.progress_total);setBadge(false);loadHistory();
-    }else if(d.running){applyStatus('running',d.progress_done,d.progress_total);}
+    }else if(d.running){
+      applyStatus('running',d.progress_done,d.progress_total);
+      // 历史 tab 打开时每 10 秒刷新一次，让累计时间实时更新
+      if(++pollCount%10===0&&$('panel-history').classList.contains('active'))loadHistory();
+    }
   }catch(e){
     pollFailures++;
     if(pollFailures>=MAX_FAIL){
