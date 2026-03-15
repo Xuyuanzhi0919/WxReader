@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0b0f1a">
 <title>微信读书 · 自动阅读</title>
+<!-- 字体异步加载：不阻塞页面渲染，国内网络超时时自动使用系统字体 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" media="print" onload="this.media='all'">
 <style>
 /* ── reset & tokens ── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -23,7 +24,7 @@
 }
 html{-webkit-text-size-adjust:100%;height:100%}
 body{
-  font-family:'Outfit',-apple-system,'PingFang SC',sans-serif;
+  font-family:'Outfit',-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;
   color:var(--t1);
   background:linear-gradient(150deg,#080c18 0%,#0d1526 100%);
   height:100%;height:100dvh;
