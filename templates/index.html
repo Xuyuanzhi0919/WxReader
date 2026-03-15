@@ -518,11 +518,27 @@ body{
 
 <script>
 'use strict';
-let running=false,logOffset=0,pollTimer=null;
-let sessionId=null;  // 当前会话 ID，存入 localStorage 实现多用户隔离
+let running=false,logOffset=0,pollTimer=null,pollFailures=0;
+let sessionId=null;
 const FORM_IDS=['cookie-ta','minutes','interval'];
-const LS_KEY='wxreader_sid';
+const LS_SID     ='wxreader_sid';
+const LS_CID     ='wxreader_cid';
+const LS_COOKIE  ='wxreader_cookie';
+const LS_REMEMBER='wxreader_remember';
+const MAX_FAIL   =5;
 const $=id=>document.getElementById(id);
+
+// ── client_id：每个浏览器唯一，持久化，用于历史记录隔离 ─────────────────────────
+function getClientId(){
+  let cid=localStorage.getItem(LS_CID);
+  if(!cid){
+    cid=([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>
+      (c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16));
+    localStorage.setItem(LS_CID,cid);
+  }
+  return cid;
+}
+const clientId=getClientId();
 
 // ── tabs ───────────────────────────────────────────────────────────────────────
 function switchTab(name){
@@ -538,17 +554,23 @@ document.querySelectorAll('[data-tab]').forEach(b=>{
 
 // ── boot ───────────────────────────────────────────────────────────────────────
 (async()=>{
+  // 1. 加载参数配置（target/interval，不含 cookie）
   try{
     const cfg=await get('/api/config');
     if(cfg.target_minutes) $('minutes').value=cfg.target_minutes;
     if(cfg.interval)       $('interval').value=cfg.interval;
-    if(cfg.remember){
-      $('remember-cb').checked=true;
-      if(cfg.cookie){$('cookie-ta').value=cfg.cookie;detectFmt(cfg.cookie);}
-    }
   }catch(e){}
-  // 用本标签页自己的 session_id 恢复，互不干扰
-  const storedSid=localStorage.getItem(LS_KEY);
+
+  // 2. cookie 从本浏览器 localStorage 读取，多用户完全隔离
+  const remember=localStorage.getItem(LS_REMEMBER)==='true';
+  if(remember){
+    $('remember-cb').checked=true;
+    const saved=localStorage.getItem(LS_COOKIE);
+    if(saved){$('cookie-ta').value=saved;detectFmt(saved);}
+  }
+
+  // 3. 恢复本标签页自己的会话
+  const storedSid=localStorage.getItem(LS_SID);
   if(storedSid){
     try{
       const r=await get('/api/restore?session_id='+storedSid);
@@ -620,7 +642,7 @@ function setBadge(on){$('tab-badge').classList.toggle('on',on);}
 // ── history ────────────────────────────────────────────────────────────────────
 async function loadHistory(){
   try{
-    const items=await get('/api/history');
+    const items=await get('/api/history?client_id='+clientId);
     const list=$('hist-list');
     if(!items.length){list.innerHTML='<span style="font-size:12px;color:var(--t3)">暂无记录</span>';return;}
     const lbl={done:'完成',stopped:'停止',error:'异常',running:'运行中'};
@@ -646,12 +668,22 @@ async function doStart(){
   const errEl=$('cookie-err');
   errEl.classList.remove('on');
   if(!cookie){errEl.textContent='请先粘贴 Cookie';errEl.classList.add('on');return;}
+
+  // cookie 存储在本浏览器 localStorage，不上传服务端
+  if(remember){
+    localStorage.setItem(LS_COOKIE,cookie);
+    localStorage.setItem(LS_REMEMBER,'true');
+  }else{
+    localStorage.removeItem(LS_COOKIE);
+    localStorage.setItem(LS_REMEMBER,'false');
+  }
+
   setBtnState('loading');
   try{
-    const res=await post('/api/start',{cookie,target_minutes:minutes,interval,remember});
+    const res=await post('/api/start',{cookie,target_minutes:minutes,interval,client_id:clientId});
     if(res.error){errEl.textContent=res.error;errEl.classList.add('on');setBtnState('idle');return;}
     sessionId=res.session_id;
-    localStorage.setItem(LS_KEY,sessionId);  // 保存到本标签页，多用户互不干扰
+    localStorage.setItem(LS_SID,sessionId);
     setRunning(true);logOffset=0;clearLog();
     applyStatus('running',0,0);setProgress(0,0);
     setBadge(true);startPoll();
@@ -674,11 +706,16 @@ function setBtnState(state){
 }
 
 // ── poll ───────────────────────────────────────────────────────────────────────
-function startPoll(){if(pollTimer)clearInterval(pollTimer);poll();pollTimer=setInterval(poll,1000);}
+function startPoll(){
+  pollFailures=0;
+  if(pollTimer)clearInterval(pollTimer);
+  poll();pollTimer=setInterval(poll,1000);
+}
 async function poll(){
   if(!sessionId) return;
   try{
     const d=await get('/api/poll?session_id='+sessionId+'&offset='+logOffset);
+    pollFailures=0;  // 成功则重置失败计数
     (d.lines||[]).forEach(appendLog);
     logOffset=d.offset??logOffset;
     setProgress(d.progress_done||0,d.progress_total||0);
@@ -688,7 +725,15 @@ async function poll(){
     }else if(!d.running&&running){
       setRunning(false);applyStatus('stopped',d.progress_done,d.progress_total);setBadge(false);loadHistory();
     }else if(d.running){applyStatus('running',d.progress_done,d.progress_total);}
-  }catch(e){}
+  }catch(e){
+    pollFailures++;
+    if(pollFailures>=MAX_FAIL){
+      clearInterval(pollTimer);pollTimer=null;
+      setRunning(false);setBadge(false);
+      $('status-msg').textContent='⚠️ 连接中断（'+MAX_FAIL+'次失败），请刷新页面重试';
+      $('status-msg').className='smsg er';
+    }
+  }
 }
 
 // ── modal ──────────────────────────────────────────────────────────────────────

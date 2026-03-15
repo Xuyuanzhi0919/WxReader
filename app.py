@@ -23,6 +23,7 @@ def _db():
 
 def init_db():
     conn = _db()
+    # 1. 建表（不含依赖新列的索引）
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS sessions (
         id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,17 +46,27 @@ def init_db():
         value      TEXT NOT NULL,
         updated_at REAL NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS idx_logs_sid ON session_logs(session_id);
     """)
+    conn.commit()
+    # 2. 迁移旧表：补充 client_id 列（已存在则忽略）
+    try:
+        conn.execute("ALTER TABLE sessions ADD COLUMN client_id TEXT NOT NULL DEFAULT ''")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    # 3. 建依赖新列的索引（迁移完成后才安全执行）
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_cid ON sessions(client_id)")
     conn.commit()
     conn.close()
 
 
-def db_create_session(target_minutes: int, interval_str: str) -> int:
+def db_create_session(target_minutes: int, interval_str: str, client_id: str = "") -> int:
     conn = _db()
     try:
         cur = conn.execute(
-            "INSERT INTO sessions (target_minutes,interval_str,created_at) VALUES(?,?,?)",
-            (target_minutes, interval_str, time.time()),
+            "INSERT INTO sessions (client_id,target_minutes,interval_str,created_at) VALUES(?,?,?,?)",
+            (client_id, target_minutes, interval_str, time.time()),
         )
         conn.commit()
         return cur.lastrowid
@@ -122,12 +133,19 @@ def db_get_logs(session_id: int, offset: int = 0) -> list:
         conn.close()
 
 
-def db_get_recent_sessions(limit: int = 10) -> list:
+def db_get_recent_sessions(limit: int = 10, client_id: str = "") -> list:
+    """按 client_id 隔离各用户历史；client_id 为空时返回所有（管理用）"""
     conn = _db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM sessions ORDER BY id DESC LIMIT ?", (limit,)
-        ).fetchall()
+        if client_id:
+            rows = conn.execute(
+                "SELECT * FROM sessions WHERE client_id=? ORDER BY id DESC LIMIT ?",
+                (client_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM sessions ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -314,15 +332,11 @@ def api_start():
     except ValueError:
         ilo, ihi = 28.0, 35.0
 
-    # 保存配置（interval / target 始终保存；cookie 仅在 remember=true 时）
+    client_id = (data.get("client_id") or "")[:64]
+
+    # 保存非敏感配置（cookie 由前端 localStorage 管理，不落库）
     db_set_config("target_minutes", str(target))
     db_set_config("interval",       interval_str)
-    if data.get("remember"):
-        db_set_config("cookie_b64", base64.b64encode(cookie_str.encode()).decode())
-        db_set_config("remember",   "true")
-    elif data.get("remember") is False:
-        db_set_config("cookie_b64", "")
-        db_set_config("remember",   "false")
 
     cfg = Config(
         cookies=cookies, headers=hdrs,
@@ -330,7 +344,7 @@ def api_start():
         target_minutes=target, interval_lo=ilo, interval_hi=ihi,
     )
 
-    session_id      = db_create_session(target, interval_str)
+    session_id      = db_create_session(target, interval_str, client_id)
     sess            = WebReadSession(cfg)
     sess.session_id = session_id
     with _lock:
@@ -392,7 +406,6 @@ def api_poll():
 
 @app.route("/api/restore")
 def api_restore():
-    """页面刷新时按 session_id 恢复指定会话"""
     session_id = request.args.get("session_id")
     if not session_id:
         return jsonify({"has_session": False})
@@ -415,7 +428,6 @@ def api_restore():
             "offset":         len(logs),
         })
 
-    # 内存无，查 DB（服务重启场景）
     row = db_get_session_by_id(sid)
     if not row:
         return jsonify({"has_session": False})
@@ -442,8 +454,9 @@ def api_restore():
 
 @app.route("/api/history")
 def api_history():
-    sessions = db_get_recent_sessions(10)
-    result   = []
+    client_id = request.args.get("client_id", "")
+    sessions  = db_get_recent_sessions(10, client_id)
+    result    = []
     for s in sessions:
         result.append({
             "id":             s["id"],
@@ -459,18 +472,10 @@ def api_history():
 
 @app.route("/api/config", methods=["GET"])
 def api_config_get():
-    cookie_b64 = db_get_config("cookie_b64", "")
-    cookie = ""
-    if cookie_b64:
-        try:
-            cookie = base64.b64decode(cookie_b64).decode()
-        except Exception:
-            cookie = ""
+    """只返回非敏感的参数配置；cookie 由前端 localStorage 自行管理"""
     return jsonify({
         "target_minutes": int(db_get_config("target_minutes", "60")),
         "interval":       db_get_config("interval", "28-35"),
-        "cookie":         cookie,
-        "remember":       db_get_config("remember", "false") == "true",
     })
 
 
