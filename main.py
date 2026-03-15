@@ -118,11 +118,23 @@ class Config:
     telegram_chat_id: str   = ""
 
 
+def _parse_cookie_str(cookie_str: str) -> dict:
+    """将 'k1=v1; k2=v2' 格式的 cookie 字符串解析为字典"""
+    cookies: dict[str, str] = {}
+    for part in cookie_str.split(";"):
+        part = part.strip()
+        if "=" in part:
+            k, v = part.split("=", 1)
+            cookies[k.strip()] = v.strip()
+    return cookies
+
+
 def _parse_curl(curl_str: str) -> tuple[dict, dict, str, str]:
     """
-    解析抓包数据，兼容两种格式：
+    解析抓包数据，兼容三种格式：
       1. curl bash 命令（curl '...' -H '...' --data-raw '...'）
       2. Chrome/DevTools 原始请求头（每行 "key: value"，cookie 可多行）
+      3. 纯 cookie 字符串（'k1=v1; k2=v2; ...'，单行或以 'cookie' 开头）
     返回 (headers, cookies, ps, pc)
     """
     s = curl_str.strip()
@@ -155,6 +167,14 @@ def _parse_curl(curl_str: str) -> tuple[dict, dict, str, str]:
             except Exception:
                 pass
         return headers, cookies, ps, pc
+
+    # ── 格式3：纯 cookie 字符串（单行，含 wr_skey= 或 wr_vid=，无换行）──────────
+    # 去掉可选的 "cookie:" / "Cookie:" 前缀后直接解析
+    first_line = s.splitlines()[0].strip()
+    cookie_prefix = re.match(r"^[Cc]ookie\s*:\s*", first_line)
+    candidate = first_line[cookie_prefix.end():] if cookie_prefix else first_line
+    if "\n" not in s and ("wr_skey=" in candidate or "wr_vid=" in candidate):
+        return {}, _parse_cookie_str(candidate), "", ""
 
     # ── 格式2：Chrome 原始请求头（key: value，每行一个，cookie 可多行） ─────────
     headers: dict[str, str] = {}
@@ -204,9 +224,16 @@ def load_config() -> Config:
             break
 
     # 2. 环境变量（覆盖 YAML）
-    curl_str = os.getenv("WXREAD_CURL_BASH", "")
+    # 支持三种格式（任填其一即可）：
+    #   WXREAD_CURL_BASH — curl bash 命令 / Chrome 原始请求头 / 纯 cookie 字符串
+    #   WXREAD_COOKIE    — 纯 cookie 字符串（更简便的备用变量名）
+    curl_str = os.getenv("WXREAD_CURL_BASH", "") or os.getenv("WXREAD_COOKIE", "")
     if curl_str:
-        cfg.headers, cfg.cookies, cfg.ps, cfg.pc = _parse_curl(curl_str)
+        cfg.headers, cfg.cookies, ps, pc = _parse_curl(curl_str)
+        if ps:
+            cfg.ps = ps
+        if pc:
+            cfg.pc = pc
 
     if os.getenv("TARGET_MINUTES"):
         cfg.target_minutes = int(os.environ["TARGET_MINUTES"])
