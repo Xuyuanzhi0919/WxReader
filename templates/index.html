@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>微信读书 · 自动阅读</title>
+  <style>
+    :root {
+      --bg:           #F7F6F3;
+      --white:        #FFFFFF;
+      --primary:      #7C9070;
+      --primary-tint: rgba(124,144,112,0.08);
+      --primary-dark: #4A5D43;
+      --danger:       #D4845E;
+      --danger-tint:  rgba(212,132,94,0.08);
+      --text-1:       #2D2D2D;
+      --text-2:       #6B6B6B;
+      --text-3:       #8E8E93;
+      --border:       #F0EFEC;
+      --shadow:       0 4px 30px rgba(0,0,0,0.04);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC',
+                   'Hiragino Sans GB', 'Segoe UI', sans-serif;
+      color: var(--text-1);
+      min-height: 100vh;
+    }
+
+    /* ── Nav ── */
+    .nav {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      height: 64px;
+      display: flex; align-items: center;
+      padding: 0 48px; gap: 12px;
+    }
+    .logo-mark {
+      width: 32px; height: 32px;
+      background: var(--primary); border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; flex-shrink: 0;
+    }
+    .logo-text { font-size: 18px; font-weight: 600; letter-spacing: -0.5px; }
+    .nav-spacer { flex: 1; }
+    .help-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 14px;
+      background: var(--bg); border-radius: 8px; border: none;
+      font-size: 13px; font-weight: 500; color: var(--primary);
+      cursor: pointer; font-family: inherit;
+    }
+    .help-btn:hover { background: var(--primary-tint); }
+
+    /* ── Layout ── */
+    .main {
+      max-width: 760px; margin: 0 auto;
+      padding: 40px 20px 64px;
+      display: flex; flex-direction: column; gap: 20px;
+    }
+    .hero-title { font-size: 30px; font-weight: 600; letter-spacing: -1px; }
+    .hero-sub   { font-size: 15px; color: var(--text-2); }
+
+    /* ── Card ── */
+    .card {
+      background: var(--white); border-radius: 16px;
+      padding: 28px; box-shadow: var(--shadow);
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    .step-header { display: flex; align-items: center; gap: 12px; }
+    .step-badge {
+      width: 28px; height: 28px; flex-shrink: 0;
+      background: var(--primary); border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 600; color: #fff;
+    }
+    .step-title { font-size: 16px; font-weight: 600; }
+    .step-desc  { font-size: 13px; color: var(--text-2); margin-top: 3px; }
+
+    /* ── Tip ── */
+    .tip-row {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 10px 14px;
+      background: var(--primary-tint); border-radius: 8px;
+      font-size: 12px; color: var(--primary-dark); line-height: 1.5;
+    }
+
+    /* ── Textarea ── */
+    .cookie-area {
+      width: 100%; height: 130px;
+      padding: 14px 16px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 12.5px; font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+      color: var(--text-1); resize: vertical; outline: none;
+      line-height: 1.65; transition: border-color .2s;
+    }
+    .cookie-area:focus   { border-color: var(--primary); }
+    .cookie-area::placeholder { color: var(--text-3); }
+    .cookie-area:disabled { opacity: .55; cursor: not-allowed; }
+
+    /* ── Settings ── */
+    .settings-row { display: flex; gap: 20px; }
+    .field { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+    .field-label { font-size: 13px; font-weight: 600; }
+    .field-box {
+      display: flex; align-items: center; height: 44px; padding: 0 16px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 10px; gap: 8px;
+    }
+    .field-box input {
+      flex: 1; background: none; border: none; outline: none;
+      font-size: 15px; font-weight: 500; color: var(--text-1);
+      font-family: inherit; min-width: 0;
+    }
+    .field-box input:disabled { cursor: not-allowed; }
+    .field-unit { font-size: 13px; color: var(--text-3); white-space: nowrap; }
+
+    /* ── Run Button ── */
+    .run-btn {
+      width: 100%; height: 52px;
+      background: var(--primary); border: none; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      font-size: 16px; font-weight: 600; color: #fff;
+      cursor: pointer; font-family: inherit;
+      box-shadow: 0 2px 20px rgba(0,0,0,0.06);
+      transition: opacity .15s, transform .15s;
+    }
+    .run-btn:hover:not(:disabled)  { opacity: .9; transform: translateY(-1px); }
+    .run-btn:active:not(:disabled) { transform: translateY(0); }
+    .run-btn.stopping { background: var(--danger); }
+    .run-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ── Error ── */
+    .err-msg {
+      display: none; padding: 10px 14px;
+      background: var(--danger-tint); border-radius: 8px;
+      font-size: 13px; color: var(--danger);
+    }
+    .err-msg.show { display: block; }
+
+    /* ── Status ── */
+    .status-header { display: flex; align-items: center; gap: 10px; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--text-3); flex-shrink: 0;
+      transition: background .3s;
+    }
+    .status-dot.running { background: var(--primary); animation: blink 1.4s ease-in-out infinite; }
+    .status-dot.done    { background: var(--primary); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+    .status-title { font-size: 15px; font-weight: 600; flex: 1; }
+    .status-badge {
+      padding: 4px 10px; border-radius: 6px;
+      font-size: 12px; font-weight: 500;
+      background: var(--danger-tint); color: var(--danger);
+      transition: all .3s;
+    }
+    .status-badge.running { background: var(--primary-tint); color: var(--primary-dark); }
+    .status-badge.done    { background: var(--primary-tint); color: var(--primary-dark); }
+
+    /* ── Progress ── */
+    .prog-row   { display: flex; flex-direction: column; gap: 7px; }
+    .prog-label { display: flex; justify-content: space-between; font-size: 12px; }
+    .prog-label .left  { color: var(--text-2); font-weight: 500; }
+    .prog-label .right { color: var(--text-1); font-weight: 600; }
+    .prog-track {
+      width: 100%; height: 8px;
+      background: var(--border); border-radius: 4px; overflow: hidden;
+    }
+    .prog-fill {
+      height: 100%; background: var(--primary); border-radius: 4px;
+      transition: width .6s ease; min-width: 0;
+    }
+
+    /* ── Log Box ── */
+    .log-box {
+      background: var(--bg); border-radius: 10px;
+      padding: 14px 16px; height: 165px; overflow-y: auto;
+      font-size: 12px;
+      font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+      color: var(--text-3); line-height: 1.75;
+    }
+    .log-box .l    { color: var(--text-3); }
+    .log-box .l-ok { color: var(--primary-dark); }
+    .log-box .l-er { color: var(--danger); }
+    .log-box .l-in { color: var(--text-2); }
+
+    /* ── Help Modal ── */
+    .modal-bg {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.4); z-index: 200;
+      align-items: center; justify-content: center;
+    }
+    .modal-bg.show { display: flex; }
+    .modal {
+      background: var(--white); border-radius: 16px;
+      padding: 32px; max-width: 520px; width: 90%;
+      box-shadow: 0 20px 60px rgba(0,0,0,.15);
+    }
+    .modal h2 { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+    .modal p  { font-size: 14px; color: var(--text-2); line-height: 1.7; margin-bottom: 12px; }
+    .modal ol { padding-left: 20px; font-size: 14px; color: var(--text-2); line-height: 2; }
+    .modal-close {
+      margin-top: 20px; width: 100%; height: 44px;
+      background: var(--primary); border: none; border-radius: 10px;
+      font-size: 14px; font-weight: 600; color: #fff;
+      cursor: pointer; font-family: inherit;
+    }
+
+    /* ── Footer ── */
+    .footer { text-align: center; font-size: 12px; color: var(--text-3); }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .nav  { padding: 0 20px; }
+      .main { padding: 24px 16px 48px; }
+      .settings-row { flex-direction: column; }
+      .hero-title { font-size: 24px; }
+      .logo-text  { font-size: 15px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav class="nav">
+  <div class="logo-mark">📖</div>
+  <span class="logo-text">微信读书 · 自动阅读</span>
+  <div class="nav-spacer"></div>
+  <button class="help-btn" onclick="showHelp()">ℹ️ 使用帮助</button>
+</nav>
+
+<!-- Main -->
+<div class="main">
+  <h1 class="hero-title">微信读书自动刷时长</h1>
+  <p class="hero-sub">粘贴 Cookie 后一键启动，自动帮你刷满每天阅读时长 📚</p>
+
+  <!-- Step 1 -->
+  <div class="card">
+    <div class="step-header">
+      <div class="step-badge">1</div>
+      <div>
+        <div class="step-title">粘贴你的 Cookie</div>
+        <div class="step-desc">在浏览器打开微信读书网页版，将登录信息粘贴到下方</div>
+      </div>
+    </div>
+    <div class="tip-row">
+      💡 支持三种格式：纯 Cookie 字符串 / curl 命令 / Chrome 请求头，任选其一粘贴即可
+    </div>
+    <textarea id="cookie-input" class="cookie-area"
+      placeholder="wr_skey=SxwIVqGw; wr_vid=384424909; ...
+（或粘贴完整的 curl 'https://weread.qq.com/...' -H 'cookie: ...' 命令）"></textarea>
+    <div id="cookie-err" class="err-msg"></div>
+  </div>
+
+  <!-- Step 2 -->
+  <div class="card">
+    <div class="step-header">
+      <div class="step-badge">2</div>
+      <div>
+        <div class="step-title">配置阅读参数</div>
+        <div class="step-desc">默认值适合大多数场景，一般无需修改</div>
+      </div>
+    </div>
+    <div class="settings-row">
+      <div class="field">
+        <label class="field-label">目标时长</label>
+        <div class="field-box">
+          <input type="number" id="target-minutes" value="60" min="1" max="360">
+          <span class="field-unit">分钟</span>
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label">请求间隔</label>
+        <div class="field-box">
+          <input type="text" id="interval" value="28-35">
+          <span class="field-unit">秒（随机区间）</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3 -->
+  <div class="card">
+    <div class="step-header">
+      <div class="step-badge">3</div>
+      <div>
+        <div class="step-title">开始自动阅读</div>
+        <div class="step-desc" id="btn-desc">点击按钮即可启动，程序将在后台自动运行</div>
+      </div>
+    </div>
+    <button class="run-btn" id="run-btn" onclick="toggleRun()">▶&nbsp; 开始阅读</button>
+  </div>
+
+  <!-- Status -->
+  <div class="card">
+    <div class="status-header">
+      <div class="status-dot" id="status-dot"></div>
+      <span class="status-title">运行状态</span>
+      <div class="status-badge" id="status-badge">未运行</div>
+    </div>
+    <div class="prog-row" id="prog-row" style="display:none">
+      <div class="prog-label">
+        <span class="left">阅读进度</span>
+        <span class="right" id="prog-text">0 / 0 分钟</span>
+      </div>
+      <div class="prog-track">
+        <div class="prog-fill" id="prog-fill" style="width:0%"></div>
+      </div>
+    </div>
+    <div class="log-box" id="log-box"><span class="l">等待启动...</span></div>
+  </div>
+
+  <div class="footer">开源项目 · 仅供学习交流使用</div>
+</div>
+
+<!-- Help Modal -->
+<div class="modal-bg" id="modal-bg" onclick="closeHelp(event)">
+  <div class="modal">
+    <h2>📖 如何获取 Cookie？</h2>
+    <p>Cookie 是你的微信读书登录凭证，获取步骤如下：</p>
+    <ol>
+      <li>用 Chrome 浏览器打开 <b>weread.qq.com</b> 并扫码登录</li>
+      <li>按 <b>F12</b>（Mac 用 ⌘⌥I）打开开发者工具</li>
+      <li>点击顶部 <b>Network（网络）</b> 标签</li>
+      <li>刷新页面，在左侧请求列表里随便点一个</li>
+      <li>右键该请求 → <b>Copy → Copy as cURL</b></li>
+      <li>粘贴到上方输入框即可</li>
+    </ol>
+    <p style="margin-top:14px">
+      <b>Cookie 有效期约数天</b>，失效后需重新获取。<br>
+      程序会自动尝试刷新，如果提示验证失败请重新粘贴。
+    </p>
+    <button class="modal-close" onclick="closeHelp()">我知道了</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+let running   = false;
+let logOffset = 0;
+let pollTimer = null;
+
+// ── 开始 / 停止 ──────────────────────────────────────────────────────────────
+function toggleRun() {
+  running ? stopReading() : startReading();
+}
+
+function startReading() {
+  const cookie  = document.getElementById('cookie-input').value.trim();
+  const minutes = parseInt(document.getElementById('target-minutes').value) || 60;
+  const interval = document.getElementById('interval').value.trim() || '28-35';
+
+  const errEl = document.getElementById('cookie-err');
+  errEl.classList.remove('show');
+
+  if (!cookie) {
+    errEl.textContent = '请先粘贴 Cookie';
+    errEl.classList.add('show');
+    return;
+  }
+
+  setBtnState('loading');
+
+  fetch('/api/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cookie, target_minutes: minutes, interval }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) {
+      errEl.textContent = data.error;
+      errEl.classList.add('show');
+      setBtnState('idle');
+      return;
+    }
+    setRunning(true);
+    logOffset = 0;
+    clearLog();
+    startPolling();
+  })
+  .catch(e => {
+    errEl.textContent = '启动请求失败：' + e.message;
+    errEl.classList.add('show');
+    setBtnState('idle');
+  });
+}
+
+function stopReading() {
+  fetch('/api/stop', { method: 'POST' }).catch(() => {});
+  setBtnState('stopping');
+}
+
+// ── 状态切换 ─────────────────────────────────────────────────────────────────
+function setBtnState(state) {
+  const btn = document.getElementById('run-btn');
+  btn.disabled = (state === 'loading' || state === 'stopping');
+  if (state === 'loading')  { btn.textContent = '正在启动...'; btn.className = 'run-btn'; }
+  if (state === 'stopping') { btn.textContent = '正在停止...'; btn.className = 'run-btn stopping'; }
+  if (state === 'idle')     { btn.innerHTML = '▶&nbsp; 开始阅读'; btn.className = 'run-btn'; }
+  if (state === 'running')  { btn.innerHTML = '⏹&nbsp; 停止运行'; btn.className = 'run-btn stopping'; }
+}
+
+function setRunning(on) {
+  running = on;
+  const dot   = document.getElementById('status-dot');
+  const badge = document.getElementById('status-badge');
+  const desc  = document.getElementById('btn-desc');
+  const inputs = ['cookie-input', 'target-minutes', 'interval'];
+
+  if (on) {
+    setBtnState('running');
+    dot.className   = 'status-dot running';
+    badge.className = 'status-badge running';
+    badge.textContent = '运行中';
+    desc.textContent  = '正在自动阅读，点击上方按钮可随时停止';
+    document.getElementById('prog-row').style.display = 'flex';
+    inputs.forEach(id => document.getElementById(id).disabled = true);
+  } else {
+    setBtnState('idle');
+    inputs.forEach(id => document.getElementById(id).disabled = false);
+  }
+}
+
+function setDone() {
+  const dot   = document.getElementById('status-dot');
+  const badge = document.getElementById('status-badge');
+  dot.className   = 'status-dot done';
+  badge.className = 'status-badge done';
+  badge.textContent = '已完成';
+  document.getElementById('btn-desc').textContent = '点击按钮即可再次启动';
+}
+
+// ── 日志 ─────────────────────────────────────────────────────────────────────
+function clearLog() {
+  document.getElementById('log-box').innerHTML = '';
+}
+
+function appendLog(line) {
+  const box = document.getElementById('log-box');
+  const span = document.createElement('span');
+  let cls = 'l';
+  if (line.includes('✅') || line.includes('🎉') || line.includes('✅'))  cls = 'l-ok';
+  else if (line.includes('❌') || line.includes('⚠️'))                    cls = 'l-er';
+  else if (line.includes('📚') || line.includes('📖') || line.includes('⏱')) cls = 'l-in';
+  span.className = cls;
+  span.textContent = line;
+  box.appendChild(span);
+  box.appendChild(document.createElement('br'));
+  box.scrollTop = box.scrollHeight;
+}
+
+// ── 进度 ─────────────────────────────────────────────────────────────────────
+function updateProgress(done, total) {
+  if (total <= 0) return;
+  const pct = Math.min(100, (done / total) * 100);
+  document.getElementById('prog-fill').style.width = pct + '%';
+  document.getElementById('prog-text').textContent =
+    `${(done * 0.5).toFixed(1)} / ${(total * 0.5).toFixed(0)} 分钟`;
+}
+
+// ── 轮询 ─────────────────────────────────────────────────────────────────────
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  poll();
+  pollTimer = setInterval(poll, 1000);
+}
+
+function poll() {
+  fetch(`/api/poll?offset=${logOffset}`)
+  .then(r => r.json())
+  .then(data => {
+    (data.lines || []).forEach(appendLog);
+    logOffset = data.offset ?? logOffset;
+    updateProgress(data.progress_done || 0, data.progress_total || 0);
+
+    if (data.done) {
+      setRunning(false);
+      setDone();
+      clearInterval(pollTimer);
+      pollTimer = null;
+    } else if (!data.running && running) {
+      // 外部停止或异常终止
+      setRunning(false);
+    }
+  })
+  .catch(e => {
+    appendLog('⚠️ 轮询出错：' + e.message);
+  });
+}
+
+// ── 帮助弹窗 ─────────────────────────────────────────────────────────────────
+function showHelp() {
+  document.getElementById('modal-bg').classList.add('show');
+}
+function closeHelp(e) {
+  if (!e || e.target === document.getElementById('modal-bg')) {
+    document.getElementById('modal-bg').classList.remove('show');
+  }
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeHelp();
+});
+</script>
+</body>
+</html>
