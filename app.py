@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""微信读书自动阅读 - Web 界面服务端（含 SQLite 持久化）"""
+"""微信读书自动阅读 - Web 界面服务端（多用户 + SQLite 持久化）"""
 import sys, os, threading, time, random, logging, sqlite3, base64
 
 from flask import Flask, request, jsonify, render_template
@@ -10,7 +10,7 @@ from main import (
     DEFAULT_PS, DEFAULT_PC,
 )
 
-app    = Flask(__name__)
+app     = Flask(__name__)
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wxread.db")
 
 # ── 数据库 ─────────────────────────────────────────────────────────────────────
@@ -99,11 +99,11 @@ def db_finish_session(session_id: int, status: str):
         conn.close()
 
 
-def db_get_last_session():
+def db_get_session_by_id(session_id: int):
     conn = _db()
     try:
         row = conn.execute(
-            "SELECT * FROM sessions ORDER BY id DESC LIMIT 1"
+            "SELECT * FROM sessions WHERE id=?", (session_id,)
         ).fetchone()
         return dict(row) if row else None
     finally:
@@ -122,7 +122,7 @@ def db_get_logs(session_id: int, offset: int = 0) -> list:
         conn.close()
 
 
-def db_get_recent_sessions(limit: int = 6) -> list:
+def db_get_recent_sessions(limit: int = 10) -> list:
     conn = _db()
     try:
         rows = conn.execute(
@@ -156,11 +156,29 @@ def db_get_config(key: str, default: str = "") -> str:
         conn.close()
 
 
+# ── 多用户会话管理 ──────────────────────────────────────────────────────────────
+_lock     = threading.Lock()
+_sessions: dict = {}   # session_id(int) -> WebReadSession
+
+CLEANUP_AFTER = 7200   # 完成 2 小时后从内存移除
+
+
+def _get_session(session_id: int):
+    with _lock:
+        return _sessions.get(int(session_id))
+
+
+def _cleanup_old():
+    """惰性清理：移除完成超过 2 小时的会话，防止内存无限增长"""
+    cutoff = time.time() - CLEANUP_AFTER
+    with _lock:
+        stale = [sid for sid, s in _sessions.items()
+                 if s.finished and (s.finish_time or 0) < cutoff]
+        for sid in stale:
+            del _sessions[sid]
+
+
 # ── 会话类 ─────────────────────────────────────────────────────────────────────
-_lock    = threading.Lock()
-_session = None   # type: WebReadSession | None
-
-
 class WebReadSession:
     def __init__(self, cfg: Config):
         self.cfg        = cfg
@@ -169,7 +187,8 @@ class WebReadSession:
         self._llock      = threading.Lock()
         self.progress    = {"done": 0, "total": 0}
         self.finished    = False
-        self.session_id  = None   # set by api_start after DB row created
+        self.finish_time = None
+        self.session_id  = None
 
     def _emit(self, msg: str):
         ts   = time.strftime("%H:%M:%S")
@@ -257,7 +276,8 @@ class WebReadSession:
         finally:
             if self.session_id:
                 db_finish_session(self.session_id, status)
-            self.finished = True
+            self.finish_time = time.time()
+            self.finished    = True
 
     def start(self):
         threading.Thread(target=self.run, daemon=True).start()
@@ -274,11 +294,6 @@ def index():
 
 @app.route("/api/start", methods=["POST"])
 def api_start():
-    global _session
-    with _lock:
-        if _session and not _session.finished and not _session.stop_event.is_set():
-            return jsonify({"error": "已有任务运行中，请先停止"}), 400
-
     data       = request.get_json() or {}
     cookie_str = (data.get("cookie") or "").strip()
     if not cookie_str:
@@ -299,7 +314,7 @@ def api_start():
     except ValueError:
         ilo, ihi = 28.0, 35.0
 
-    # 保存配置到 DB（interval / target 始终保存；cookie 仅在 remember=true 时保存）
+    # 保存配置（interval / target 始终保存；cookie 仅在 remember=true 时）
     db_set_config("target_minutes", str(target))
     db_set_config("interval",       interval_str)
     if data.get("remember"):
@@ -315,86 +330,111 @@ def api_start():
         target_minutes=target, interval_lo=ilo, interval_hi=ihi,
     )
 
-    session_id  = db_create_session(target, interval_str)
-    sess        = WebReadSession(cfg)
+    session_id      = db_create_session(target, interval_str)
+    sess            = WebReadSession(cfg)
     sess.session_id = session_id
     with _lock:
-        _session = sess
+        _sessions[session_id] = sess
     sess.start()
+    _cleanup_old()
+
     return jsonify({"ok": True, "session_id": session_id})
 
 
 @app.route("/api/stop", methods=["POST"])
 def api_stop():
-    with _lock:
-        s = _session
-    if s:
-        s.stop()
+    data       = request.get_json() or {}
+    session_id = data.get("session_id")
+    if session_id:
+        s = _get_session(int(session_id))
+        if s:
+            s.stop()
     return jsonify({"ok": True})
 
 
 @app.route("/api/poll")
 def api_poll():
-    offset = int(request.args.get("offset", 0))
-    with _lock:
-        s = _session
-    if not s:
+    session_id = request.args.get("session_id")
+    offset     = int(request.args.get("offset", 0))
+
+    if not session_id:
+        return jsonify({"lines": [], "offset": 0, "done": False,
+                        "running": False, "progress_done": 0, "progress_total": 0})
+
+    s = _get_session(int(session_id))
+    if s:
+        lines   = s.logs_from(offset)
+        running = not s.stop_event.is_set() and not s.finished
         return jsonify({
-            "lines": [], "offset": 0, "done": False,
-            "running": False, "progress_done": 0, "progress_total": 0,
+            "lines":          lines,
+            "offset":         offset + len(lines),
+            "done":           s.finished,
+            "running":        running,
+            "progress_done":  s.progress["done"],
+            "progress_total": s.progress["total"],
         })
-    lines   = s.logs_from(offset)
-    running = not s.stop_event.is_set() and not s.finished
+
+    # 内存中不存在（服务重启）→ 从 DB 补全剩余日志
+    row = db_get_session_by_id(int(session_id))
+    if not row:
+        return jsonify({"lines": [], "offset": offset, "done": True,
+                        "running": False, "progress_done": 0, "progress_total": 0})
+    lines = db_get_logs(int(session_id), offset)
     return jsonify({
         "lines":          lines,
         "offset":         offset + len(lines),
-        "done":           s.finished,
-        "running":        running,
-        "progress_done":  s.progress["done"],
-        "progress_total": s.progress["total"],
+        "done":           True,
+        "running":        False,
+        "progress_done":  row["progress_done"],
+        "progress_total": row["progress_total"],
     })
 
 
 @app.route("/api/restore")
 def api_restore():
-    """页面刷新时恢复上次会话状态（内存 → DB 双层回退）"""
-    with _lock:
-        s = _session
+    """页面刷新时按 session_id 恢复指定会话"""
+    session_id = request.args.get("session_id")
+    if not session_id:
+        return jsonify({"has_session": False})
+
+    sid = int(session_id)
+    s   = _get_session(sid)
     if s:
         logs   = s.logs_from(0)
-        status = ("done" if s.finished
+        status = ("done"    if s.finished
                   else "stopped" if s.stop_event.is_set()
                   else "running")
         return jsonify({
             "has_session":    True,
             "running":        status == "running",
             "status":         status,
-            "session_id":     s.session_id,
+            "session_id":     sid,
             "progress_done":  s.progress["done"],
             "progress_total": s.progress["total"],
             "logs":           logs,
             "offset":         len(logs),
         })
 
-    last = db_get_last_session()
-    if not last:
+    # 内存无，查 DB（服务重启场景）
+    row = db_get_session_by_id(sid)
+    if not row:
         return jsonify({"has_session": False})
 
-    if last["status"] == "running":          # 服务器重启导致任务中断
-        db_finish_session(last["id"], "error")
-        last["status"] = "error"
+    if row["status"] == "running":
+        db_finish_session(sid, "error")
+        row["status"] = "error"
 
-    logs = db_get_logs(last["id"])
-    if last["status"] == "error":
+    logs = db_get_logs(sid)
+    if row["status"] == "error":
         logs.append("[--:--:--] ⚠️ 检测到服务重启，上次任务已中断")
 
     return jsonify({
         "has_session":    True,
         "running":        False,
-        "status":         last["status"],
-        "session_id":     last["id"],
-        "progress_done":  last["progress_done"],
-        "progress_total": last["progress_total"],
+        "status":         row["status"],
+        "session_id":     sid,
+        "progress_done":  row["progress_done"],
+        "progress_total": row["progress_total"],
         "logs":           logs,
         "offset":         len(logs),
     })
@@ -402,7 +442,7 @@ def api_restore():
 
 @app.route("/api/history")
 def api_history():
-    sessions = db_get_recent_sessions(6)
+    sessions = db_get_recent_sessions(10)
     result   = []
     for s in sessions:
         result.append({
@@ -439,4 +479,5 @@ if __name__ == "__main__":
     init_db()
     port = int(os.environ.get("PORT", 8080))
     print(f"🚀 微信读书 Web 界面已启动：http://localhost:{port}")
+    print(f"   支持多用户同时运行，每个浏览器标签独立会话")
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

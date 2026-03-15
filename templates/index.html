@@ -519,7 +519,9 @@ body{
 <script>
 'use strict';
 let running=false,logOffset=0,pollTimer=null;
+let sessionId=null;  // 当前会话 ID，存入 localStorage 实现多用户隔离
 const FORM_IDS=['cookie-ta','minutes','interval'];
+const LS_KEY='wxreader_sid';
 const $=id=>document.getElementById(id);
 
 // ── tabs ───────────────────────────────────────────────────────────────────────
@@ -545,17 +547,22 @@ document.querySelectorAll('[data-tab]').forEach(b=>{
       if(cfg.cookie){$('cookie-ta').value=cfg.cookie;detectFmt(cfg.cookie);}
     }
   }catch(e){}
-  try{
-    const r=await get('/api/restore');
-    if(r.has_session){
-      logOffset=r.offset||0;
-      clearLog();
-      (r.logs||[]).forEach(appendLog);
-      setProgress(r.progress_done||0,r.progress_total||0);
-      applyStatus(r.status,r.progress_done,r.progress_total);
-      if(r.running){setRunning(true);setBadge(true);startPoll();switchTab('status');}
-    }
-  }catch(e){}
+  // 用本标签页自己的 session_id 恢复，互不干扰
+  const storedSid=localStorage.getItem(LS_KEY);
+  if(storedSid){
+    try{
+      const r=await get('/api/restore?session_id='+storedSid);
+      if(r.has_session){
+        sessionId=r.session_id;
+        logOffset=r.offset||0;
+        clearLog();
+        (r.logs||[]).forEach(appendLog);
+        setProgress(r.progress_done||0,r.progress_total||0);
+        applyStatus(r.status,r.progress_done,r.progress_total);
+        if(r.running){setRunning(true);setBadge(true);startPoll();switchTab('status');}
+      }
+    }catch(e){}
+  }
   loadHistory();
 })();
 
@@ -643,13 +650,18 @@ async function doStart(){
   try{
     const res=await post('/api/start',{cookie,target_minutes:minutes,interval,remember});
     if(res.error){errEl.textContent=res.error;errEl.classList.add('on');setBtnState('idle');return;}
+    sessionId=res.session_id;
+    localStorage.setItem(LS_KEY,sessionId);  // 保存到本标签页，多用户互不干扰
     setRunning(true);logOffset=0;clearLog();
     applyStatus('running',0,0);setProgress(0,0);
     setBadge(true);startPoll();
     switchTab('status');
   }catch(e){errEl.textContent='启动失败：'+e.message;errEl.classList.add('on');setBtnState('idle');}
 }
-async function doStop(){setBtnState('stopping');try{await post('/api/stop',{});}catch(e){}}
+async function doStop(){
+  setBtnState('stopping');
+  try{await post('/api/stop',{session_id:sessionId});}catch(e){}
+}
 function setRunning(on){
   running=on;setBtnState(on?'running':'idle');
   FORM_IDS.forEach(id=>{$(id).disabled=on;});
@@ -664,8 +676,9 @@ function setBtnState(state){
 // ── poll ───────────────────────────────────────────────────────────────────────
 function startPoll(){if(pollTimer)clearInterval(pollTimer);poll();pollTimer=setInterval(poll,1000);}
 async function poll(){
+  if(!sessionId) return;
   try{
-    const d=await get('/api/poll?offset='+logOffset);
+    const d=await get('/api/poll?session_id='+sessionId+'&offset='+logOffset);
     (d.lines||[]).forEach(appendLog);
     logOffset=d.offset??logOffset;
     setProgress(d.progress_done||0,d.progress_total||0);
